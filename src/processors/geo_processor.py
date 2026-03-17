@@ -5,11 +5,13 @@
 
 import json
 import logging
+import math
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 
 from config.settings import GEO_DIR
 
@@ -92,6 +94,15 @@ SUBWAY_STATION_COORDS: dict[str, tuple[float, float]] = {
     "독바위": (37.6136, 126.9251),
     "구파발": (37.6370, 126.9186),
 }
+
+
+def assign_grid_cell(lat: float, lon: float, resolution_m: float = 500) -> str:
+    """좌표를 그리드 셀 ID로 변환."""
+    lat_step = resolution_m / 111320.0
+    lon_step = resolution_m / (111320.0 * math.cos(math.radians(lat)))
+    lat_idx = math.floor(lat / lat_step)
+    lon_idx = math.floor(lon / lon_step)
+    return f"grid_{lat_idx}_{lon_idx}"
 
 
 class GeoProcessor:
@@ -198,3 +209,49 @@ class GeoProcessor:
         """법정동코드 → 행정동코드 변환."""
         mapping = self.load_bjd_to_hjd_mapping()
         return mapping.get(bjd_code)
+
+    def assign_grid_cells_batch(
+        self,
+        df: pd.DataFrame,
+        lat_col: str = "위도",
+        lon_col: str = "경도",
+        resolution_m: float = 500,
+    ) -> pd.DataFrame:
+        """DataFrame에 grid_id 컬럼을 추가 (벡터화)."""
+        df = df.copy()
+        lat = df[lat_col].values
+        lon = df[lon_col].values
+        lat_step = resolution_m / 111320.0
+        lon_step = resolution_m / (111320.0 * np.cos(np.radians(lat)))
+        lat_idx = np.floor(lat / lat_step).astype(int)
+        lon_idx = np.floor(lon / lon_step).astype(int)
+        df["grid_id"] = [f"grid_{la}_{lo}" for la, lo in zip(lat_idx, lon_idx)]
+        return df
+
+    def create_seoul_grid(self, resolution_m: float = 500) -> gpd.GeoDataFrame:
+        """서울시 영역을 그리드로 분할."""
+        seoul_boundary = self.dong_gdf.union_all()
+        minx, miny, maxx, maxy = seoul_boundary.bounds
+
+        lat_step = resolution_m / 111320.0
+        mid_lat = (miny + maxy) / 2
+        lon_step = resolution_m / (111320.0 * math.cos(math.radians(mid_lat)))
+
+        grid_cells = []
+        lat = miny
+        while lat < maxy:
+            lon = minx
+            while lon < maxx:
+                cell = box(lon, lat, lon + lon_step, lat + lat_step)
+                lat_idx = math.floor(lat / lat_step)
+                lon_idx = math.floor(lon / lon_step)
+                grid_cells.append({
+                    "grid_id": f"grid_{lat_idx}_{lon_idx}",
+                    "geometry": cell,
+                })
+                lon += lon_step
+            lat += lat_step
+
+        grid_gdf = gpd.GeoDataFrame(grid_cells, crs="EPSG:4326")
+        grid_gdf = gpd.clip(grid_gdf, seoul_boundary)
+        return grid_gdf[["grid_id", "geometry"]]
