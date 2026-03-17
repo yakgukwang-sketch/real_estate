@@ -34,10 +34,15 @@ class RealEstateCollector(BaseCollector):
             year: 연도
             month: 월
             gu_code: 자치구 법정동코드 (5자리). None이면 서울 전체.
-            property_type: "apt" (아파트) or "villa" (연립다세대)
+            property_type: "apt" (아파트), "villa" (연립다세대), "officetel" (오피스텔)
         """
         gu_codes = [gu_code] if gu_code else settings.seoul_gu_codes
-        url = settings.apt_trade_url if property_type == "apt" else settings.villa_trade_url
+        url_map = {
+            "apt": settings.apt_trade_url,
+            "villa": settings.villa_trade_url,
+            "officetel": settings.officetel_trade_url,
+        }
+        url = url_map.get(property_type, settings.apt_trade_url)
 
         frames = []
         for code in gu_codes:

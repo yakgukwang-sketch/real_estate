@@ -20,8 +20,9 @@ class Settings(BaseSettings):
     seoul_open_api_key: str = ""
 
     # data.go.kr 엔드포인트
-    apt_trade_url: str = "http://openapi.molit.go.kr/OpenAPI_ToolInstall498/service/rest/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
-    villa_trade_url: str = "http://openapi.molit.go.kr:8081/OpenAPI_ToolInstallPack498/service/rest/RTMSDataSvcRHTradeDev/getRTMSDataSvcRHTradeDev"
+    apt_trade_url: str = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
+    villa_trade_url: str = "https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade"
+    officetel_trade_url: str = "https://apis.data.go.kr/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade"
     commercial_url: str = "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInDong"
 
     # data.seoul.go.kr 엔드포인트 (서울 열린데이터 광장)

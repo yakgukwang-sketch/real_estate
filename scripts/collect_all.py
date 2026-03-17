@@ -5,6 +5,8 @@ import logging
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import settings, RAW_DIR
@@ -32,7 +34,7 @@ def collect_realestate(year: int, month: int):
     from src.collectors.realestate_collector import RealEstateCollector
 
     collector = RealEstateCollector()
-    for ptype in ["apt", "villa"]:
+    for ptype in ["apt", "villa", "officetel"]:
         df = collector.collect(year=year, month=month, property_type=ptype)
         if not df.empty:
             output = RAW_DIR / f"realestate_{ptype}_{year}{month:02d}.parquet"
@@ -48,6 +50,9 @@ def collect_commercial():
     collector = CommercialCollector()
     df = collector.collect_all_seoul()
     if not df.empty:
+        # 빈 문자열이 포함된 object 컬럼을 string 타입으로 변환
+        for col in df.select_dtypes(include="object").columns:
+            df[col] = df[col].replace("", pd.NA).astype("string")
         output = RAW_DIR / "commercial.parquet"
         output.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(output, index=False)

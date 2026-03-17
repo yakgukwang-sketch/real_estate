@@ -112,6 +112,12 @@ class CommercialCollector(BaseCollector):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
+        # 코드 컬럼의 빈 문자열을 NaN 처리 후 문자열 타입 유지
+        code_cols = ["행정동코드", "법정동코드", "지번코드", "도로명코드", "건물관리번호"]
+        for col in code_cols:
+            if col in df.columns:
+                df[col] = df[col].replace("", pd.NA).astype("string")
+
         return df
 
     def collect_all_seoul(self) -> pd.DataFrame:
