@@ -13,7 +13,7 @@ from dashboard.components.chart_builder import (
     phase_spending_chart, dong_ranking_chart,
 )
 from dashboard.components.map_viewer import create_flow_map, render_map
-from src.processors.geo_processor import DONG_CENTROIDS
+from src.processors.geo_processor import DONG_CENTROIDS, SUBWAY_STATION_COORDS
 from src.simulation.scenario_engine import ScenarioEngine
 from src.simulation.forecast import Forecaster
 
@@ -166,12 +166,30 @@ with tab3:
             model = CityModel(sample_pop, sample_emp)
             model.run(days=n_days)
 
-        st.session_state["sim_flow_df"] = model.get_flow_summary()
-        st.session_state["sim_spending_df"] = model.get_phase_spending()
-        st.session_state["sim_population_df"] = model.get_dong_population()
-        st.session_state["sim_summary"] = model.get_summary()
+        # 에이전트 1명 = 실제 100명이므로 실제 스케일로 환산
+        SCALE = 100
+
+        flow_df = model.get_flow_summary()
+        if not flow_df.empty:
+            flow_df["count"] = flow_df["count"] * SCALE
+
+        spending_df = model.get_phase_spending()
+        if not spending_df.empty:
+            spending_df["spending"] = spending_df["spending"] * SCALE
+
+        population_df = model.get_dong_population()
+        if not population_df.empty:
+            population_df["population"] = population_df["population"] * SCALE
+
+        summary = model.get_summary()
+        summary = {k: v * SCALE for k, v in summary.items()}
+
+        st.session_state["sim_flow_df"] = flow_df
+        st.session_state["sim_spending_df"] = spending_df
+        st.session_state["sim_population_df"] = population_df
+        st.session_state["sim_summary"] = summary
         st.session_state["sim_days"] = n_days
-        st.session_state["sim_n_agents"] = len(list(model.agents))
+        st.session_state["sim_n_agents"] = len(list(model.agents)) * SCALE
         st.success("시뮬레이션 완료!")
 
     # 결과 표시 (세션 상태에 데이터가 있을 때)
@@ -218,6 +236,7 @@ with tab3:
                 population_df=population_df,
                 coord_map=DONG_CENTROIDS,
                 phase=selected_phase,
+                station_coords=SUBWAY_STATION_COORDS,
             )
             from streamlit_folium import st_folium
             st_folium(flow_map, width=None, height=500, returned_objects=[])
