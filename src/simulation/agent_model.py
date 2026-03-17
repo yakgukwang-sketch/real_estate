@@ -2,9 +2,11 @@
 
 import logging
 import random
+from collections import defaultdict
 
 import mesa
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,9 @@ class Resident(mesa.Agent):
 
     def _commute_to_work(self):
         """출근."""
+        origin = self.current_dong
         self.current_dong = self.work_dong
+        self.model.record_flow("morning", origin, self.work_dong)
         self.time_of_day = "daytime"
 
     def _daytime_spending(self):
@@ -49,7 +53,9 @@ class Resident(mesa.Agent):
 
     def _commute_home(self):
         """퇴근."""
+        origin = self.current_dong
         self.current_dong = self.home_dong
+        self.model.record_flow("evening", origin, self.home_dong)
         self.time_of_day = "night"
 
     def _nighttime_spending(self):
@@ -78,13 +84,24 @@ class CityModel(mesa.Model):
             income_distribution: 소득수준별 비율 {1: 0.2, 2: 0.3, ...}
         """
         super().__init__()
-        self.dong_population = dong_population
+        self.dong_pop_input = dong_population
         self.dong_employment = dong_employment
         self.income_dist = income_distribution or {
             1: 0.15, 2: 0.25, 3: 0.30, 4: 0.20, 5: 0.10
         }
         self.spending_ledger: dict[str, float] = {}
         self.daily_records: list[dict] = []
+
+        # 유동인구 흐름 추적
+        self.flow_ledger: dict[str, dict[tuple[str, str], int]] = {
+            phase: defaultdict(int) for phase in ("morning", "daytime", "evening", "night")
+        }
+        self.phase_spending: dict[str, dict[str, float]] = {
+            phase: defaultdict(float) for phase in ("morning", "daytime", "evening", "night")
+        }
+        self.dong_population: dict[str, dict[str, int]] = {
+            phase: defaultdict(int) for phase in ("morning", "daytime", "evening", "night")
+        }
 
         self._create_agents()
 
@@ -100,7 +117,7 @@ class CityModel(mesa.Model):
         income_levels = list(self.income_dist.keys())
         income_probs = list(self.income_dist.values())
 
-        for dong, pop in self.dong_population.items():
+        for dong, pop in self.dong_pop_input.items():
             # 인구를 1/100로 스케일링 (시뮬레이션 속도)
             n_agents = max(1, pop // 100)
             for _ in range(n_agents):
@@ -113,19 +130,47 @@ class CityModel(mesa.Model):
         """소비 기록."""
         self.spending_ledger[dong] = self.spending_ledger.get(dong, 0) + amount
 
+    def record_flow(self, phase: str, origin: str, destination: str):
+        """유동인구 흐름 기록."""
+        self.flow_ledger[phase][(origin, destination)] += 1
+
+    def _record_phase_population(self, phase: str):
+        """현 단계에서 각 동의 인구수를 기록."""
+        for agent in self.agents:
+            self.dong_population[phase][agent.current_dong] += 1
+
     def step(self):
         """하루 4단계 시뮬레이션."""
         self.spending_ledger = {}
+        self._current_phase_spending: dict[str, float] = {}
         for phase in ["morning", "daytime", "evening", "night"]:
+            phase_spend_before = dict(self.spending_ledger)
             for agent in self.agents:
                 agent.time_of_day = phase
                 agent.step()
+            # 이 단계에서 발생한 소비만 기록
+            for dong, total in self.spending_ledger.items():
+                prev = phase_spend_before.get(dong, 0.0)
+                diff = total - prev
+                if diff > 0:
+                    self.phase_spending[phase][dong] += diff
+            self._record_phase_population(phase)
 
         self.daily_records.append(dict(self.spending_ledger))
 
     def run(self, days: int = 30) -> list[dict]:
         """N일 시뮬레이션 실행."""
         self.daily_records = []
+        # 누적 데이터 초기화
+        self.flow_ledger = {
+            phase: defaultdict(int) for phase in ("morning", "daytime", "evening", "night")
+        }
+        self.phase_spending = {
+            phase: defaultdict(float) for phase in ("morning", "daytime", "evening", "night")
+        }
+        self.dong_population = {
+            phase: defaultdict(int) for phase in ("morning", "daytime", "evening", "night")
+        }
         for day in range(days):
             self.step()
             if (day + 1) % 10 == 0:
@@ -139,3 +184,46 @@ class CityModel(mesa.Model):
             for dong, amount in daily.items():
                 summary[dong] = summary.get(dong, 0) + amount
         return summary
+
+    def get_flow_summary(self) -> pd.DataFrame:
+        """유동인구 흐름 요약 DataFrame 반환."""
+        rows = []
+        for phase, flows in self.flow_ledger.items():
+            for (origin, dest), count in flows.items():
+                rows.append({
+                    "origin": origin,
+                    "destination": dest,
+                    "count": count,
+                    "phase": phase,
+                })
+        if not rows:
+            return pd.DataFrame(columns=["origin", "destination", "count", "phase"])
+        return pd.DataFrame(rows)
+
+    def get_phase_spending(self) -> pd.DataFrame:
+        """단계별 소비 요약 DataFrame 반환."""
+        rows = []
+        for phase, spending in self.phase_spending.items():
+            for dong, amount in spending.items():
+                rows.append({
+                    "dong": dong,
+                    "phase": phase,
+                    "spending": amount,
+                })
+        if not rows:
+            return pd.DataFrame(columns=["dong", "phase", "spending"])
+        return pd.DataFrame(rows)
+
+    def get_dong_population(self) -> pd.DataFrame:
+        """단계별 동별 인구 요약 DataFrame 반환."""
+        rows = []
+        for phase, pops in self.dong_population.items():
+            for dong, pop in pops.items():
+                rows.append({
+                    "dong": dong,
+                    "phase": phase,
+                    "population": pop,
+                })
+        if not rows:
+            return pd.DataFrame(columns=["dong", "phase", "population"])
+        return pd.DataFrame(rows)

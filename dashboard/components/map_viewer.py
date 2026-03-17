@@ -98,6 +98,111 @@ def render_map(m: folium.Map, height: int = 600) -> dict:
     return st_folium(m, width=None, height=height, returned_objects=[])
 
 
+def create_flow_map(
+    flow_df: pd.DataFrame,
+    spending_df: pd.DataFrame,
+    population_df: pd.DataFrame,
+    coord_map: dict[str, tuple[float, float]],
+    phase: str,
+    geojson_path: str | None = None,
+) -> folium.Map:
+    """유동인구 흐름 시각화 지도 생성.
+
+    Args:
+        flow_df: columns=[origin, destination, count, phase]
+        spending_df: columns=[dong, phase, spending]
+        population_df: columns=[dong, phase, population]
+        coord_map: 동 이름 → (lat, lon) 매핑
+        phase: 시간대 필터 ("morning", "daytime", "evening", "night")
+        geojson_path: 서울 GeoJSON 파일 경로 (선택)
+    """
+    from folium.plugins import AntPath
+
+    m = create_base_map(zoom=12)
+
+    # 선택된 시간대 데이터 필터
+    phase_flows = flow_df[flow_df["phase"] == phase].copy() if not flow_df.empty else pd.DataFrame()
+    phase_spending = spending_df[spending_df["phase"] == phase].copy() if not spending_df.empty else pd.DataFrame()
+    phase_pop = population_df[population_df["phase"] == phase].copy() if not population_df.empty else pd.DataFrame()
+
+    # 코로플레스 (소비 기준) - gu-level GeoJSON 사용 시
+    # geojson은 gu-level이므로 dong-level 소비와 직접 매핑이 어려움 → 생략
+
+    # AntPath: 상위 20개 OD 흐름
+    if not phase_flows.empty:
+        top_flows = phase_flows.nlargest(20, "count")
+        max_count = top_flows["count"].max() if not top_flows.empty else 1
+        min_count = top_flows["count"].min() if not top_flows.empty else 1
+        count_range = max_count - min_count if max_count != min_count else 1
+
+        for _, row in top_flows.iterrows():
+            origin_coords = coord_map.get(row["origin"])
+            dest_coords = coord_map.get(row["destination"])
+            if origin_coords is None or dest_coords is None:
+                continue
+            if row["origin"] == row["destination"]:
+                continue
+
+            # 선 굵기: 2~8 범위로 정규화
+            normalized = (row["count"] - min_count) / count_range
+            weight = 2 + normalized * 6
+
+            # 색상: 파랑(낮음) → 빨강(높음)
+            r = int(normalized * 255)
+            b = int((1 - normalized) * 255)
+            color = f"#{r:02x}00{b:02x}"
+
+            popup_text = f"{row['origin']} → {row['destination']}: {row['count']:,}명"
+
+            AntPath(
+                locations=[
+                    [origin_coords[0], origin_coords[1]],
+                    [dest_coords[0], dest_coords[1]],
+                ],
+                color=color,
+                weight=weight,
+                opacity=0.7,
+                dash_array=[10, 20],
+                delay=1000,
+                popup=folium.Popup(popup_text, max_width=250),
+            ).add_to(m)
+
+    # CircleMarker: 각 동의 인구 + 소비
+    spending_by_dong = {}
+    if not phase_spending.empty:
+        spending_by_dong = dict(zip(phase_spending["dong"], phase_spending["spending"]))
+
+    pop_by_dong = {}
+    if not phase_pop.empty:
+        pop_by_dong = dict(zip(phase_pop["dong"], phase_pop["population"]))
+
+    all_dongs = set(list(spending_by_dong.keys()) + list(pop_by_dong.keys()))
+    for dong in all_dongs:
+        coords = coord_map.get(dong)
+        if coords is None:
+            continue
+        pop = pop_by_dong.get(dong, 0)
+        spend = spending_by_dong.get(dong, 0)
+        radius = max(5, min(25, pop / max(max(pop_by_dong.values(), default=1), 1) * 25)) if pop > 0 else 5
+
+        popup_html = (
+            f"<b>{dong}</b><br>"
+            f"인구: {pop:,}명<br>"
+            f"소비: {spend:,.0f}원"
+        )
+        folium.CircleMarker(
+            location=[coords[0], coords[1]],
+            radius=radius,
+            color="#3388ff",
+            fill=True,
+            fill_color="#3388ff",
+            fill_opacity=0.5,
+            popup=folium.Popup(popup_html, max_width=250),
+        ).add_to(m)
+
+    return m
+
+
 def create_comparison_maps(
     gdf: gpd.GeoDataFrame,
     before_col: str,

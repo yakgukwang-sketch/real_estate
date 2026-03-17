@@ -88,6 +88,164 @@ def pie_chart(
     return fig
 
 
+def inflow_outflow_chart(
+    flow_df: pd.DataFrame,
+    title: str = "유입/유출 순이동",
+    height: int = 400,
+) -> go.Figure:
+    """동별 순유입/유출 수평 바 차트.
+
+    Args:
+        flow_df: columns=[origin, destination, count, phase]
+    """
+    if flow_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title=title, height=height)
+        return fig
+
+    # 유입 합산
+    inflow = flow_df.groupby("destination")["count"].sum().rename("inflow")
+    # 유출 합산
+    outflow = flow_df.groupby("origin")["count"].sum().rename("outflow")
+    net = pd.DataFrame({"inflow": inflow, "outflow": outflow}).fillna(0)
+    net["net"] = net["inflow"] - net["outflow"]
+    net = net.sort_values("net")
+
+    # 상위/하위 15개
+    top_out = net.head(10)
+    top_in = net.tail(10)
+    display = pd.concat([top_out, top_in]).drop_duplicates()
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=display.index,
+        x=display["net"].clip(upper=0),
+        orientation="h",
+        name="순유출",
+        marker_color="#ef4444",
+    ))
+    fig.add_trace(go.Bar(
+        y=display.index,
+        x=display["net"].clip(lower=0),
+        orientation="h",
+        name="순유입",
+        marker_color="#3b82f6",
+    ))
+    fig.update_layout(
+        title=title, height=height, barmode="relative",
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis_title="순이동 인원",
+        yaxis_title="",
+    )
+    return fig
+
+
+def phase_spending_chart(
+    spending_df: pd.DataFrame,
+    title: str = "시간대별 소비 분석",
+    height: int = 400,
+) -> go.Figure:
+    """시간대별 동별 소비 그룹 바 차트.
+
+    Args:
+        spending_df: columns=[dong, phase, spending]
+    """
+    if spending_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title=title, height=height)
+        return fig
+
+    phase_labels = {
+        "morning": "출근시간(오전)",
+        "daytime": "주간",
+        "evening": "퇴근시간(저녁)",
+        "night": "야간",
+    }
+    phase_colors = {
+        "morning": "#f59e0b",
+        "daytime": "#3b82f6",
+        "evening": "#ef4444",
+        "night": "#8b5cf6",
+    }
+
+    # 총소비 상위 10개 동만
+    dong_totals = spending_df.groupby("dong")["spending"].sum().nlargest(10)
+    top_dongs = dong_totals.index.tolist()
+    filtered = spending_df[spending_df["dong"].isin(top_dongs)]
+
+    fig = go.Figure()
+    for phase in ["morning", "daytime", "evening", "night"]:
+        phase_data = filtered[filtered["phase"] == phase]
+        if phase_data.empty:
+            continue
+        # 동 순서를 총소비 기준으로 정렬
+        phase_data = phase_data.set_index("dong").reindex(top_dongs).reset_index()
+        fig.add_trace(go.Bar(
+            x=phase_data["dong"],
+            y=phase_data["spending"],
+            name=phase_labels.get(phase, phase),
+            marker_color=phase_colors.get(phase, "#999"),
+        ))
+
+    fig.update_layout(
+        title=title, height=height, barmode="group",
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis_title="행정동",
+        yaxis_title="소비액 (원)",
+    )
+    return fig
+
+
+def dong_ranking_chart(
+    population_df: pd.DataFrame,
+    spending_df: pd.DataFrame,
+    title: str = "동별 인구 & 소비 순위",
+    height: int = 400,
+) -> go.Figure:
+    """동별 인구와 소비를 보여주는 결합 차트.
+
+    Args:
+        population_df: columns=[dong, phase, population]
+        spending_df: columns=[dong, phase, spending]
+    """
+    fig = go.Figure()
+
+    if population_df.empty and spending_df.empty:
+        fig.update_layout(title=title, height=height)
+        return fig
+
+    pop_total = population_df.groupby("dong")["population"].sum() if not population_df.empty else pd.Series(dtype=float)
+    spend_total = spending_df.groupby("dong")["spending"].sum() if not spending_df.empty else pd.Series(dtype=float)
+
+    combined = pd.DataFrame({"population": pop_total, "spending": spend_total}).fillna(0)
+    combined = combined.sort_values("spending", ascending=False).head(15)
+
+    fig.add_trace(go.Bar(
+        x=combined.index,
+        y=combined["spending"],
+        name="소비액",
+        marker_color="#3b82f6",
+        yaxis="y",
+    ))
+    fig.add_trace(go.Scatter(
+        x=combined.index,
+        y=combined["population"],
+        name="인구수",
+        mode="lines+markers",
+        marker_color="#ef4444",
+        yaxis="y2",
+    ))
+
+    fig.update_layout(
+        title=title, height=height,
+        margin=dict(l=20, r=60, t=40, b=20),
+        yaxis=dict(title="소비액 (원)", side="left"),
+        yaxis2=dict(title="인구수", side="right", overlaying="y"),
+        legend=dict(x=0.01, y=0.99),
+    )
+    return fig
+
+
 def forecast_chart(
     forecast_df: pd.DataFrame,
     title: str = "시계열 예측",

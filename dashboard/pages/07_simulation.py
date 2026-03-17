@@ -8,7 +8,12 @@ import streamlit as st
 import pandas as pd
 
 from config.settings import PROCESSED_DIR
-from dashboard.components.chart_builder import bar_chart, forecast_chart
+from dashboard.components.chart_builder import (
+    bar_chart, forecast_chart, inflow_outflow_chart,
+    phase_spending_chart, dong_ranking_chart,
+)
+from dashboard.components.map_viewer import create_flow_map, render_map
+from src.processors.geo_processor import DONG_CENTROIDS
 from src.simulation.scenario_engine import ScenarioEngine
 from src.simulation.forecast import Forecaster
 
@@ -119,7 +124,7 @@ with tab2:
                 if not result.empty:
                     st.plotly_chart(
                         forecast_chart(result, title=f"{selected_dong} 거래금액 예측"),
-                        use_container_width=True,
+                        width="stretch",
                     )
                 else:
                     st.warning("예측에 충분한 데이터가 없습니다.")
@@ -127,35 +132,120 @@ with tab2:
         st.info("부동산 데이터가 필요합니다.")
 
 with tab3:
-    st.subheader("에이전트 기반 시뮬레이션")
-    st.info("""
-    에이전트 기반 시뮬레이션은 다음을 모델링합니다:
-    - **Resident 에이전트**: 거주동, 직장동, 소득수준, 소비패턴
-    - **하루 행동**: 출근 → 주간 소비 → 퇴근 → 야간 소비
-    - 결과: 행정동별 일일 소비액 추정
+    st.subheader("에이전트 기반 유동인구 시뮬레이션")
 
-    대규모 시뮬레이션은 시간이 소요될 수 있습니다.
-    """)
+    PHASE_MAP = {
+        "출근시간(오전)": "morning",
+        "주간": "daytime",
+        "퇴근시간(저녁)": "evening",
+        "야간": "night",
+    }
 
-    n_days = st.slider("시뮬레이션 일수", 1, 90, 30)
+    n_days = st.slider("시뮬레이션 일수", 1, 90, 7, key="agent_sim_days")
 
-    if st.button("시뮬레이션 실행"):
+    if st.button("시뮬레이션 실행", key="agent_sim_run"):
         from src.simulation.agent_model import CityModel
 
-        # 간단한 테스트 데이터
-        sample_pop = {"강남동": 50000, "역삼동": 40000, "서초동": 35000}
-        sample_emp = {"강남동": 100000, "역삼동": 80000, "서초동": 60000}
+        # 샘플 데이터 (처리된 데이터가 없을 경우)
+        sample_pop = {
+            "강남동": 50000, "역삼동": 40000, "서초동": 35000,
+            "삼성동": 30000, "잠실동": 45000, "홍대동": 25000,
+            "여의도동": 20000, "신림동": 55000, "노원동": 60000,
+            "구로동": 35000, "마포동": 28000, "성수동": 22000,
+            "종로동": 15000, "명동": 10000, "압구정동": 18000,
+        }
+        sample_emp = {
+            "강남동": 100000, "역삼동": 80000, "서초동": 60000,
+            "삼성동": 50000, "잠실동": 30000, "홍대동": 20000,
+            "여의도동": 70000, "신림동": 15000, "노원동": 10000,
+            "구로동": 40000, "마포동": 25000, "성수동": 35000,
+            "종로동": 45000, "명동": 55000, "압구정동": 15000,
+        }
 
         with st.spinner(f"{n_days}일 시뮬레이션 실행 중..."):
             model = CityModel(sample_pop, sample_emp)
-            records = model.run(days=n_days)
+            model.run(days=n_days)
 
-        summary = model.get_summary()
-        summary_df = pd.DataFrame([
-            {"행정동": k, "총소비액": v} for k, v in summary.items()
-        ]).sort_values("총소비액", ascending=False)
+        st.session_state["sim_flow_df"] = model.get_flow_summary()
+        st.session_state["sim_spending_df"] = model.get_phase_spending()
+        st.session_state["sim_population_df"] = model.get_dong_population()
+        st.session_state["sim_summary"] = model.get_summary()
+        st.session_state["sim_days"] = n_days
+        st.session_state["sim_n_agents"] = len(list(model.agents))
+        st.success("시뮬레이션 완료!")
 
-        st.plotly_chart(
-            bar_chart(summary_df, "행정동", "총소비액", title=f"{n_days}일 간 행정동별 추정 소비액"),
-            use_container_width=True,
+    # 결과 표시 (세션 상태에 데이터가 있을 때)
+    if "sim_flow_df" in st.session_state:
+        flow_df = st.session_state["sim_flow_df"]
+        spending_df = st.session_state["sim_spending_df"]
+        population_df = st.session_state["sim_population_df"]
+        sim_summary = st.session_state["sim_summary"]
+        sim_days = st.session_state["sim_days"]
+        sim_n_agents = st.session_state["sim_n_agents"]
+
+        total_spending = sum(sim_summary.values())
+        busiest_dong = max(sim_summary, key=sim_summary.get) if sim_summary else "-"
+
+        # Row 1: 메트릭 카드
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        with mc1:
+            st.metric("총 에이전트 수", f"{sim_n_agents:,}명")
+        with mc2:
+            st.metric("총 소비액", f"{total_spending:,.0f}원")
+        with mc3:
+            st.metric("시뮬레이션 일수", f"{sim_days}일")
+        with mc4:
+            st.metric("가장 활발한 지역", busiest_dong)
+
+        st.divider()
+
+        # Row 2: 시간대 선택
+        selected_phase_label = st.select_slider(
+            "시간대 선택",
+            options=list(PHASE_MAP.keys()),
+            value="출근시간(오전)",
+            key="sim_phase_slider",
         )
+        selected_phase = PHASE_MAP[selected_phase_label]
+
+        # Row 3: 지도 + 유입/유출 차트
+        col_map, col_bar = st.columns([2, 1])
+        with col_map:
+            st.markdown(f"**{selected_phase_label} 유동인구 흐름 지도**")
+            flow_map = create_flow_map(
+                flow_df=flow_df,
+                spending_df=spending_df,
+                population_df=population_df,
+                coord_map=DONG_CENTROIDS,
+                phase=selected_phase,
+            )
+            from streamlit_folium import st_folium
+            st_folium(flow_map, width=None, height=500, returned_objects=[])
+
+        with col_bar:
+            st.markdown(f"**{selected_phase_label} 유입/유출 분석**")
+            phase_flow = flow_df[flow_df["phase"] == selected_phase] if not flow_df.empty else flow_df
+            fig_io = inflow_outflow_chart(phase_flow, title=f"{selected_phase_label} 순유입/유출")
+            st.plotly_chart(fig_io, width="stretch")
+
+        st.divider()
+
+        # Row 4: 시간대별 소비 + 동별 랭킹 테이블
+        col_spend, col_rank = st.columns([1, 1])
+        with col_spend:
+            fig_phase = phase_spending_chart(spending_df, title="시간대별 소비 비교")
+            st.plotly_chart(fig_phase, width="stretch")
+
+        with col_rank:
+            st.markdown("**동별 인구 & 소비 순위**")
+            # 랭킹 테이블
+            pop_total = population_df.groupby("dong")["population"].sum().reset_index()
+            spend_total = spending_df.groupby("dong")["spending"].sum().reset_index()
+            rank_df = pd.merge(pop_total, spend_total, on="dong", how="outer").fillna(0)
+            rank_df.columns = ["행정동", "총 인구(연인원)", "총 소비액"]
+            rank_df["1인당 소비"] = (rank_df["총 소비액"] / rank_df["총 인구(연인원)"].replace(0, 1)).round(0)
+            rank_df = rank_df.sort_values("총 소비액", ascending=False)
+            rank_df["총 소비액"] = rank_df["총 소비액"].apply(lambda x: f"{x:,.0f}")
+            rank_df["총 인구(연인원)"] = rank_df["총 인구(연인원)"].apply(lambda x: f"{x:,.0f}")
+            rank_df["1인당 소비"] = rank_df["1인당 소비"].apply(lambda x: f"{x:,.0f}")
+            st.dataframe(rank_df, width="stretch", hide_index=True)
