@@ -156,6 +156,39 @@ BASE_EMPLOYMENT = {
 # ── 시뮬레이션 설정 ──
 st.sidebar.header("시뮬레이션 설정")
 
+# 데이터 소스 선택
+st.sidebar.subheader("데이터 소스")
+use_real_data = st.sidebar.checkbox("실제 세대수 데이터 사용", value=True)
+data_status = {}
+housing_dist = {}
+distance_matrix = {}
+
+if use_real_data:
+    try:
+        from src.simulation.household_data_loader import HouseholdDataLoader
+        loader = HouseholdDataLoader()
+        data_status = loader.get_data_status()
+        has_any_data = any(data_status.values())
+
+        if has_any_data:
+            sim_input = loader.build_simulation_input(
+                fallback_population=BASE_POPULATION,
+                fallback_employment=BASE_EMPLOYMENT,
+            )
+            REAL_POPULATION = sim_input["dong_population"]
+            REAL_EMPLOYMENT = sim_input["dong_employment"]
+            housing_dist = sim_input["housing_distribution"]
+            distance_matrix = sim_input["distance_matrix"]
+
+            avail = [k for k, v in data_status.items() if v]
+            st.sidebar.success(f"데이터 로드: {', '.join(avail)}")
+        else:
+            st.sidebar.warning("수집된 데이터 없음 → 기본값 사용")
+            use_real_data = False
+    except Exception as e:
+        st.sidebar.error(f"데이터 로드 실패: {e}")
+        use_real_data = False
+
 dong_options = list(DONG_COORDS.keys())
 selected_dongs = st.sidebar.multiselect(
     "행정동 선택",
@@ -187,8 +220,12 @@ show_gu_boundary = st.sidebar.checkbox("구 경계선 표시", value=True)
 show_labels = st.sidebar.checkbox("동 이름 라벨", value=True)
 map_height = st.sidebar.slider("지도 높이", 400, 800, 600, step=50)
 
-dong_pop = {d: int(BASE_POPULATION.get(d, 30000) * mult) for d in selected_dongs}
-dong_emp = {d: int(BASE_EMPLOYMENT.get(d, 40000) * mult) for d in selected_dongs}
+if use_real_data and 'REAL_POPULATION' in dir():
+    dong_pop = {d: int(REAL_POPULATION.get(d, BASE_POPULATION.get(d, 30000)) * mult) for d in selected_dongs}
+    dong_emp = {d: int(REAL_EMPLOYMENT.get(d, BASE_EMPLOYMENT.get(d, 40000)) * mult) for d in selected_dongs}
+else:
+    dong_pop = {d: int(BASE_POPULATION.get(d, 30000) * mult) for d in selected_dongs}
+    dong_emp = {d: int(BASE_EMPLOYMENT.get(d, 40000) * mult) for d in selected_dongs}
 
 
 def _add_gu_boundaries(m):
@@ -264,7 +301,13 @@ if st.button("시뮬레이션 실행", type="primary"):
     from src.simulation.agent_model import CityModel
 
     with st.spinner(f"{len(selected_dongs)}개 동, {n_days}일 시뮬레이션 중..."):
-        model = CityModel(dong_pop, dong_emp)
+        # 선택된 동만 포함하도록 필터링
+        filtered_housing = {d: housing_dist[d] for d in selected_dongs if d in housing_dist} if housing_dist else None
+        model = CityModel(
+            dong_pop, dong_emp,
+            housing_distribution=filtered_housing or None,
+            distance_matrix=distance_matrix or None,
+        )
         model.run(days=n_days)
 
     agents = list(model.agents)
@@ -272,7 +315,19 @@ if st.button("시뮬레이션 실행", type="primary"):
     movements = model.get_movement_summary()
     daily = model.get_daily_series()
 
-    st.success(f"완료! 에이전트 {len(agents)}명, {n_days}일 시뮬레이션")
+    data_label = "실제 세대수 데이터" if use_real_data and housing_dist else "기본 데이터"
+    st.success(f"완료! 에이전트 {len(agents)}명, {n_days}일 시뮬레이션 ({data_label})")
+
+    # 주거유형 분포 표시
+    housing_summary = model.get_housing_type_summary()
+    if not housing_summary.empty:
+        st.subheader("주거유형별 에이전트 분포")
+        cols = st.columns(len(housing_summary))
+        type_labels = {"apt": "아파트", "officetel": "오피스텔", "villa": "빌라"}
+        for i, (_, row) in enumerate(housing_summary.iterrows()):
+            with cols[i]:
+                label = type_labels.get(row["주거유형"], row["주거유형"])
+                st.metric(label, f"{row['에이전트수']:,}명", f"{row['비율']}%")
 
     # ── 요약 메트릭 ──
     total_spending = sum(summary.values())
@@ -681,6 +736,21 @@ if st.button("시뮬레이션 실행", type="primary"):
     if not movements.empty:
         st.subheader("출퇴근 이동 패턴 TOP 20")
         st.dataframe(movements.head(20), use_container_width=True, hide_index=True)
+
+    # ── 출퇴근 거리 분석 ──
+    commute_dist = model.get_commute_distance_summary()
+    if not commute_dist.empty:
+        st.subheader("출퇴근 거리 분석")
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            avg_dist = commute_dist["평균거리"].mean()
+            st.metric("전체 평균 출퇴근 거리", f"{avg_dist:.1f} km")
+        with col_d2:
+            top_routes = commute_dist.head(10)
+            st.dataframe(
+                top_routes[["거주동", "직장동", "이동인원", "평균거리"]],
+                use_container_width=True, hide_index=True,
+            )
 
 else:
     st.info("👈 사이드바에서 행정동을 선택하고 '시뮬레이션 실행' 버튼을 누르세요.")
