@@ -12,7 +12,27 @@ logger = logging.getLogger(__name__)
 
 
 class Resident(mesa.Agent):
-    """거주자 에이전트 - 거주동, 직장동, 소득수준, 소비패턴 보유."""
+    """거주자 에이전트 - 현실적 하루 행동 패턴 시뮬레이션.
+
+    하루 7단계:
+    1. 출근 (9시) → 직장동 이동
+    2. 점심 (12시) → 직장 주변 소비
+    3. 오후업무 (13시) → 직장동 복귀
+    4. 퇴근 (18시) → 거주동 이동
+    5. 저녁외출 (20시) → 거주동 주변 상점 소비 (확률적)
+    6. 귀가 (22시) → 집
+    7. 수면 → 다음날
+    """
+
+    PHASES = [
+        "commute_to_work",    # 09시: 출근
+        "lunch",              # 12시: 점심 소비
+        "afternoon_work",     # 13시: 오후 업무
+        "commute_home",       # 18시: 퇴근
+        "evening_errands",    # 20시: 저녁 외출 (쇼핑, 마트 등)
+        "return_home",        # 22시: 귀가
+        "sleep",              # 수면 → 리셋
+    ]
 
     def __init__(self, model, home_dong: str, work_dong: str, income_level: int):
         super().__init__(model)
@@ -21,51 +41,91 @@ class Resident(mesa.Agent):
         self.income_level = income_level  # 1~5 (저소득~고소득)
         self.current_dong = home_dong
         self.daily_spending = 0.0
-        self.time_of_day = "morning"
+        self.phase_idx = 0
 
-        # 소득 수준별 기본 소비 성향
+        # 소득 수준별 기본 일일 소비 예산
         self._base_spending = {1: 20000, 2: 35000, 3: 55000, 4: 80000, 5: 120000}
+        # 저녁 외출 확률 (소득 높을수록 높음)
+        self._evening_out_prob = {1: 0.2, 2: 0.3, 3: 0.4, 4: 0.5, 5: 0.6}
+
+    @property
+    def time_of_day(self):
+        """현재 시간대 (레거시 호환)."""
+        phase = self.PHASES[self.phase_idx % len(self.PHASES)]
+        legacy_map = {
+            "commute_to_work": "morning",
+            "lunch": "daytime",
+            "afternoon_work": "daytime",
+            "commute_home": "evening",
+            "evening_errands": "night",
+            "return_home": "night",
+            "sleep": "morning",
+        }
+        return legacy_map.get(phase, "morning")
+
+    @time_of_day.setter
+    def time_of_day(self, value):
+        """레거시 호환: 외부에서 phase를 문자열로 설정."""
+        phase_map = {
+            "morning": 0,
+            "daytime": 1,
+            "evening": 3,
+            "night": 4,
+        }
+        self.phase_idx = phase_map.get(value, 0)
 
     def step(self):
-        """하루 행동 시뮬레이션."""
-        if self.time_of_day == "morning":
-            self._commute_to_work()
-        elif self.time_of_day == "daytime":
-            self._daytime_spending()
-        elif self.time_of_day == "evening":
-            self._commute_home()
-        elif self.time_of_day == "night":
-            self._nighttime_spending()
+        """한 단계 행동."""
+        phase = self.PHASES[self.phase_idx % len(self.PHASES)]
+        getattr(self, f"_do_{phase}")()
+        self.phase_idx += 1
 
-    def _commute_to_work(self):
-        """출근."""
+    def _do_commute_to_work(self):
+        """09시 출근 → 직장동 이동."""
         origin = self.current_dong
         self.current_dong = self.work_dong
         self.model.record_flow("morning", origin, self.work_dong)
-        self.time_of_day = "daytime"
+        self.model.record_movement(self.home_dong, self.work_dong, "출근")
 
-    def _daytime_spending(self):
-        """주간 소비 (직장 주변)."""
+    def _do_lunch(self):
+        """12시 점심 → 직장 주변 소비."""
         base = self._base_spending.get(self.income_level, 50000)
-        self.daily_spending += base * 0.4 * random.uniform(0.5, 1.5)
-        self.model.record_spending(self.work_dong, self.daily_spending)
-        self.time_of_day = "evening"
+        lunch_cost = base * 0.15 * random.uniform(0.7, 1.3)  # 일 예산의 ~15%
+        self.daily_spending += lunch_cost
+        self.model.record_spending(self.work_dong, lunch_cost)
 
-    def _commute_home(self):
-        """퇴근."""
+    def _do_afternoon_work(self):
+        """13시 오후 업무 → 직장동 (추가 소비: 카페 등)."""
+        base = self._base_spending.get(self.income_level, 50000)
+        if random.random() < 0.3:  # 30% 확률로 카페/간식
+            snack = base * 0.05 * random.uniform(0.5, 1.5)
+            self.daily_spending += snack
+            self.model.record_spending(self.work_dong, snack)
+
+    def _do_commute_home(self):
+        """18시 퇴근 → 거주동 이동."""
         origin = self.current_dong
         self.current_dong = self.home_dong
         self.model.record_flow("evening", origin, self.home_dong)
-        self.time_of_day = "night"
+        self.model.record_movement(self.work_dong, self.home_dong, "퇴근")
 
-    def _nighttime_spending(self):
-        """야간 소비 (거주지 주변)."""
-        base = self._base_spending.get(self.income_level, 50000)
-        night_spend = base * 0.6 * random.uniform(0.3, 1.5)
-        self.daily_spending += night_spend
-        self.model.record_spending(self.home_dong, night_spend)
-        self.time_of_day = "morning"
-        self.daily_spending = 0.0  # 일일 리셋
+    def _do_evening_errands(self):
+        """20시 저녁 외출 → 마트/상점 소비 (확률적)."""
+        prob = self._evening_out_prob.get(self.income_level, 0.3)
+        if random.random() < prob:
+            base = self._base_spending.get(self.income_level, 50000)
+            errand_cost = base * 0.3 * random.uniform(0.5, 2.0)  # 일 예산의 ~30%
+            self.daily_spending += errand_cost
+            self.model.record_spending(self.home_dong, errand_cost)
+
+    def _do_return_home(self):
+        """22시 귀가."""
+        self.current_dong = self.home_dong
+
+    def _do_sleep(self):
+        """수면 → 일일 리셋."""
+        self.phase_idx = -1  # step()에서 +1 되어 0으로 복귀
+        self.daily_spending = 0.0
 
 
 class CityModel(mesa.Model):
@@ -90,7 +150,9 @@ class CityModel(mesa.Model):
             1: 0.15, 2: 0.25, 3: 0.30, 4: 0.20, 5: 0.10
         }
         self.spending_ledger: dict[str, float] = {}
+        self.movement_ledger: dict[tuple, int] = {}
         self.daily_records: list[dict] = []
+        self.movement_records: list[dict] = []
 
         # 유동인구 흐름 추적
         self.flow_ledger: dict[str, dict[tuple[str, str], int]] = {
@@ -134,19 +196,28 @@ class CityModel(mesa.Model):
         """유동인구 흐름 기록."""
         self.flow_ledger[phase][(origin, destination)] += 1
 
+    def record_movement(self, from_dong: str, to_dong: str, purpose: str):
+        """이동 기록."""
+        key = (from_dong, to_dong, purpose)
+        self.movement_ledger[key] = self.movement_ledger.get(key, 0) + 1
+
     def _record_phase_population(self, phase: str):
         """현 단계에서 각 동의 인구수를 기록."""
         for agent in self.agents:
             self.dong_population[phase][agent.current_dong] += 1
 
     def step(self):
-        """하루 4단계 시뮬레이션."""
+        """하루 7단계 시뮬레이션.
+
+        출근 → 점심 → 오후업무 → 퇴근 → 저녁외출 → 귀가 → 수면
+        """
         self.spending_ledger = {}
+        self.movement_ledger = {}
         self._current_phase_spending: dict[str, float] = {}
+
         for phase in ["morning", "daytime", "evening", "night"]:
             phase_spend_before = dict(self.spending_ledger)
             for agent in self.agents:
-                agent.time_of_day = phase
                 agent.step()
             # 이 단계에서 발생한 소비만 기록
             for dong, total in self.spending_ledger.items():
@@ -156,11 +227,21 @@ class CityModel(mesa.Model):
                     self.phase_spending[phase][dong] += diff
             self._record_phase_population(phase)
 
+        # sleep 단계 (7단계 중 나머지)
+        for agent in self.agents:
+            agent.step()
+        for agent in self.agents:
+            agent.step()
+        for agent in self.agents:
+            agent.step()
+
         self.daily_records.append(dict(self.spending_ledger))
+        self.movement_records.append(dict(self.movement_ledger))
 
     def run(self, days: int = 30) -> list[dict]:
         """N일 시뮬레이션 실행."""
         self.daily_records = []
+        self.movement_records = []
         # 누적 데이터 초기화
         self.flow_ledger = {
             phase: defaultdict(int) for phase in ("morning", "daytime", "evening", "night")
@@ -227,3 +308,71 @@ class CityModel(mesa.Model):
         if not rows:
             return pd.DataFrame(columns=["dong", "phase", "population"])
         return pd.DataFrame(rows)
+
+    def get_movement_summary(self) -> pd.DataFrame:
+        """이동 패턴 요약 - 출발지→도착지별 이동 횟수."""
+        rows = []
+        for daily in self.movement_records:
+            for (from_dong, to_dong, purpose), count in daily.items():
+                rows.append({
+                    "출발지": from_dong,
+                    "도착지": to_dong,
+                    "목적": purpose,
+                    "이동횟수": count,
+                })
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        return (
+            df.groupby(["출발지", "도착지", "목적"])["이동횟수"]
+            .sum()
+            .reset_index()
+            .sort_values("이동횟수", ascending=False)
+        )
+
+    def get_daily_series(self) -> pd.DataFrame:
+        """일별 행정동별 소비액 시계열."""
+        rows = []
+        for day, daily in enumerate(self.daily_records, 1):
+            for dong, amount in daily.items():
+                rows.append({"일차": day, "행정동": dong, "소비액": amount})
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+    @classmethod
+    def from_processed_data(
+        cls,
+        population_df: pd.DataFrame,
+        subway_df: pd.DataFrame | None = None,
+        income_distribution: dict[int, float] | None = None,
+    ) -> "CityModel":
+        """처리된 데이터에서 CityModel 자동 생성.
+
+        Args:
+            population_df: 행정동코드, 평균생활인구 컬럼 필요
+            subway_df: 행정동코드, 하차총승객수 컬럼 (직장인구 프록시)
+            income_distribution: 소득수준별 비율
+        """
+        # 거주인구
+        dong_pop: dict[str, int] = {}
+        if "행정동코드" in population_df.columns:
+            pop_col = "평균생활인구" if "평균생활인구" in population_df.columns else None
+            if pop_col:
+                agg = population_df.groupby("행정동코드")[pop_col].mean()
+                dong_pop = {str(k): int(v) for k, v in agg.items() if v > 0}
+
+        # 직장인구 (지하철 하차 기반 프록시)
+        dong_emp: dict[str, int] = {}
+        if subway_df is not None and not subway_df.empty:
+            emp_col = "하차총승객수" if "하차총승객수" in subway_df.columns else None
+            if emp_col:
+                agg = subway_df.groupby("행정동코드")[emp_col].sum()
+                dong_emp = {str(k): int(v) for k, v in agg.items() if v > 0}
+
+        if not dong_pop:
+            raise ValueError("인구 데이터에서 유효한 행정동을 찾을 수 없습니다")
+
+        # 직장인구가 없으면 거주인구를 기본으로 사용
+        if not dong_emp:
+            dong_emp = dong_pop
+
+        return cls(dong_pop, dong_emp, income_distribution)

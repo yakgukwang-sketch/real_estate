@@ -1,55 +1,153 @@
 # 서울 상권 & 부동산 시뮬레이션
 
-서울시의 **사람 이동 패턴**과 **소비 패턴**을 분석하는 데이터 기반 시뮬레이션 플랫폼.
-7개 공공 API에서 수집한 지하철 승하차, 부동산 실거래가, 상가/상권, 생활/직장인구, 추정매출 데이터를 **행정동코드 + 기준연월** 기준으로 통합하여 상권-부동산 상관관계를 분석하고, What-if 시나리오와 에이전트 기반 시뮬레이션을 웹 대시보드로 시각화합니다.
+서울시의 **사람 이동 패턴**과 **소비 패턴**을 분석하는 시뮬레이션 프로젝트.
+지하철 승하차 인구, 버스 승하차, 아파트/빌라 부동산, 직장인구, 소비수요 데이터를 결합하여 상권과 부동산의 상관관계를 분석하고 웹 대시보드로 시각화합니다.
+
+서울시 82개 주요 지역의 **실시간 인구밀도** 및 **실시간 상권 활동** 데이터도 수집하여 현재 시점의 도시 역동성을 파악할 수 있습니다.
+
+## 주요 기능
+
+- **데이터 수집**: 10개 공공 API에서 지하철, 버스, 부동산, 상권, 인구, 매출, 실시간 데이터 자동 수집
+- **행정동 매핑**: 좌표 기반 spatial join으로 모든 데이터를 행정동코드 + 기준연월로 통합
+- **상관분석**: 유동인구-부동산-매출 간 교차 상관분석, 시차 상관분석
+- **클러스터링**: K-Means 기반 유사 행정동 그룹화
+- **상권 스코어링**: 6개 지표 가중합 상권 활성도 등급 (A~E)
+- **시뮬레이션**: 에이전트 기반 출퇴근/소비 모델, OD 유동 모델 (지하철+버스 통합)
+- **What-if 시나리오**: 신규 지하철역, 임대료 변동, 인구 변화 시 영향 예측 + 복합 시나리오 지원
+- **파급효과 분석**: GeoJSON 인접성 그래프 기반 1차/2차 인접동 실제 파급효과 추정
+- **시계열 예측**: Prophet/ARIMA 기반 부동산 가격, 매출, 유동인구, 생활인구 다중 지표 예측
+- **대시보드**: Streamlit + Folium 지도 + Plotly 차트 9페이지 (4탭 시뮬레이션 + 출퇴근 분석 + 지도 시각화)
+
+## 프로젝트 구조
+
+```
+real_estate/
+├── config/
+│   ├── settings.py                     # API 키, 엔드포인트, 서울 25개 구 지역코드
+│   └── __init__.py
+├── src/
+│   ├── collectors/                     # 10개 공공 API 수집기
+│   │   ├── base_collector.py           #   공통 베이스 (캐싱, Rate-limit)
+│   │   ├── subway_collector.py         #   지하철 승하차
+│   │   ├── bus_collector.py            #   버스 승하차
+│   │   ├── realestate_collector.py     #   아파트/빌라/오피스텔 실거래
+│   │   ├── commercial_collector.py     #   상가(상권) 정보
+│   │   ├── population_collector.py     #   생활인구/직장인구
+│   │   ├── spending_collector.py       #   추정매출
+│   │   ├── live_commercial_collector.py#   실시간 상권 활동 (82개 지역)
+│   │   ├── live_population_collector.py#   실시간 인구밀도 (82개 지역)
+│   │   └── live_snapshot_collector.py  #   실시간 스냅샷 누적 수집
+│   ├── processors/                     # 데이터 정제 + 행정동 매핑
+│   │   ├── geo_processor.py            #   좌표→행정동 Spatial Join
+│   │   ├── subway_processor.py         #   지하철 집계
+│   │   ├── realestate_processor.py     #   부동산 집계
+│   │   ├── commercial_processor.py     #   상권 집계
+│   │   └── population_processor.py     #   인구 집계
+│   ├── analysis/                       # 통계 분석
+│   │   ├── correlation.py              #   교차/시차 상관분석
+│   │   ├── clustering.py               #   K-Means 행정동 클러스터링
+│   │   ├── scoring.py                  #   상권 활성도 스코어링 (A~E)
+│   │   ├── trend_analysis.py           #   추세 분석
+│   │   ├── commute_analyzer.py         #   출퇴근 유동 + 목적지 유형 분석
+│   │   └── live_flow_analyzer.py      #   실시간 스냅샷 시간대별 유동 분석
+│   ├── simulation/                     # 시뮬레이션 & 예측
+│   │   ├── agent_model.py              #   Mesa 에이전트 (실제 데이터 연동 지원)
+│   │   ├── flow_model.py               #   OD 중력모델 (지하철+버스 통합)
+│   │   ├── scenario_engine.py          #   What-if + 복합 시나리오 + 인접동 파급효과
+│   │   └── forecast.py                 #   Prophet/ARIMA 다중 지표 예측
+│   ├── models/                         # Pydantic 데이터 모델
+│   └── utils/                          # 공통 유틸리티
+│       ├── api_client.py               #   HTTP 클라이언트 (재시도, Rate-limit)
+│       ├── cache.py                    #   SQLite 기반 API 응답 캐시
+│       └── geo_utils.py                #   좌표 계산 유틸
+├── dashboard/
+│   ├── app.py                          # Streamlit 메인
+│   ├── pages/                          # 9개 분석 페이지
+│   │   ├── 01_overview.py              #   서울 전체 현황
+│   │   ├── 02_subway.py                #   지하철 승하차 분석
+│   │   ├── 03_realestate.py            #   부동산 실거래가
+│   │   ├── 04_commercial.py            #   상권 분석
+│   │   ├── 05_population.py            #   생활/직장 인구
+│   │   ├── 06_correlation.py           #   상관관계 종합
+│   │   ├── 07_simulation.py            #   시뮬레이션
+│   │   ├── 08_commute.py              #   출퇴근 유동 분석
+│   │   └── 09_sim_map.py              #   시뮬레이션 지도 시각화
+│   └── components/                     # 공통 UI 컴포넌트
+│       ├── chart_builder.py            #   Plotly 차트 빌더
+│       ├── filters.py                  #   사이드바 필터 (연도, 구, 업종 등)
+│       └── map_viewer.py               #   Folium 지도 뷰어
+├── data/
+│   ├── raw/                            # 원본 수집 데이터 (parquet)
+│   ├── processed/                      # 처리/통합 데이터 (integrated.parquet)
+│   ├── geo/                            # GeoJSON, 법정동-행정동 매핑
+│   └── cache/                          # SQLite API 캐시
+├── scripts/
+│   ├── collect_all.py                  # 데이터 수집 오케스트레이션
+│   ├── process_all.py                  # 데이터 처리 파이프라인
+│   └── seed_geodata.py                 # GeoJSON 초기 다운로드
+└── tests/                              # 테스트
+    ├── test_analysis.py
+    ├── test_commute.py
+    ├── test_live_flow.py
+    ├── test_simulation.py
+    └── test_utils.py
+```
 
 ---
+
+## 데이터 소스
+
+| 데이터 | API | 소스 | 주기 |
+|--------|-----|------|------|
+| 지하철 승하차 | 서울시 지하철 호선별 역별 승하차 인원 | data.seoul.go.kr | 일별 |
+| 버스 승하차 | 서울시 버스 노선별 정류장별 승하차 인원 | data.seoul.go.kr | 일별 |
+| 아파트 실거래가 | 국토교통부 아파트매매 실거래자료 | data.go.kr | 월별 |
+| 빌라 실거래가 | 국토교통부 연립다세대 매매 실거래자료 | data.go.kr | 월별 |
+| 오피스텔 실거래가 | 국토교통부 오피스텔 매매 실거래자료 | data.go.kr | 월별 |
+| 상권/상가 | 소상공인 상가(상권)정보 | data.go.kr | 수시 |
+| 추정매출 | 서울시 상권분석서비스 추정매출 | data.seoul.go.kr | 분기별 |
+| 생활인구 | 행정동 단위 서울 생활인구 | data.seoul.go.kr | 월별 |
+| 직장인구 | 서울시 사업체/종사자수 | data.seoul.go.kr | 월별 |
+| 실시간 인구밀도 | 서울시 실시간 도시데이터 (82개 주요 지역) | data.seoul.go.kr | 실시간 |
+| 실시간 상권 활동 | 서울시 실시간 도시데이터 (82개 주요 지역) | data.seoul.go.kr | 실시간 |
+
+## 기술 스택
+
+| 용도 | 패키지 |
+|------|--------|
+| 데이터 | pandas, numpy, pyarrow |
+| 지리 | geopandas, shapely, folium |
+| 시각화 | streamlit, streamlit-folium, plotly |
+| 분석 | scikit-learn, scipy |
+| 시뮬레이션 | mesa |
+| 예측 | prophet, statsmodels |
+| 설정 | python-dotenv, pydantic-settings |
+| HTTP | requests, urllib3 (재시도 전략) |
+| 캐싱 | sqlite3 (API 응답 캐시, TTL 관리) |
 
 ## 아키텍처
 
 ```
-┌─────────────────────────────────────────────────┐
-│           7개 공공 API (data.go.kr / Seoul Open) │
-└────────────────────┬────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────┐
-│  Data Collection Layer (src/collectors/)         │
-│  - SQLite 캐시 (TTL 24~72h)                     │
-│  - Rate limiting (0.3s/req)                      │
-│  - Retry logic (3회, exponential backoff)        │
-└────────────────────┬────────────────────────────┘
-                     │  RAW Parquet
-┌────────────────────▼────────────────────────────┐
-│  Data Processing Layer (src/processors/)         │
-│  - GeoJSON spatial join (좌표→행정동)            │
-│  - 법정동↔행정동 매핑                            │
-│  - 500m 그리드 셀 할당                           │
-│  - 월별 집계 파이프라인                          │
-└────────────────────┬────────────────────────────┘
-                     │  PROCESSED Parquet
-       ┌─────────────┼─────────────┐
-       │             │             │
-┌──────▼──┐   ┌─────▼────┐  ┌────▼──────┐
-│ Analysis │   │Simulation│  │ Dashboard │
-│ -상관분석│   │-시나리오 │  │ Streamlit │
-│ -클러스터│   │-에이전트 │  │ 7 pages   │
-│ -스코어링│   │-OD 유동  │  │ Folium    │
-│ -추세분석│   │-시계열   │  │ Plotly    │
-└─────────┘   └──────────┘  └───────────┘
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  Collectors  │───▶│  Processors │───▶│  Analysis   │───▶│ Simulation  │───▶│  Dashboard  │
+│  (10개 API)  │    │ (Geo 매핑)  │    │ (통계분석)  │    │ (예측/시나리오)│    │ (Streamlit) │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+       │                  │
+       ▼                  ▼
+ data/raw/*.parquet  data/processed/integrated.parquet
 ```
+
+**데이터 처리 흐름:**
+
+1. **수집(Collect)**: 10개 공공 API에서 원본 데이터 수집 → `data/raw/*.parquet`
+2. **처리(Process)**: 좌표→행정동 Spatial Join, 정제, 월별 집계 → `data/processed/integrated.parquet`
+3. **분석(Analyze)**: 상관분석, K-Means 클러스터링, 상권 스코어링 (A~E 등급)
+4. **시뮬레이션(Simulate)**: 에이전트 모델, OD 중력모델, What-if 시나리오, 시계열 예측
+5. **시각화(Visualize)**: Streamlit 9페이지 대시보드 + Folium 지도 + Plotly 차트
 
 ---
 
-## 주요 기능
-
-### 데이터 수집 & 처리
-- **7개 공공 API** 자동 수집 (지하철, 아파트/빌라, 상가, 생활인구, 직장인구, 추정매출)
-- **SQLite 캐시** 기반 중복 요청 방지 (TTL 24~72시간)
-- **GeoJSON spatial join**으로 모든 데이터를 행정동코드 + 기준연월로 통합
-- **법정동(BJD)↔행정동(HJD) 매핑** 지원
-- **500m 격자 그리드** 기반 공간 분석
-
-### 분석 엔진
+## 분석 엔진
 
 | 모듈 | 기능 | 세부 사항 |
 |------|------|-----------|
@@ -58,7 +156,7 @@
 | **상권 스코어링** | 6개 지표 가중합 활성도 등급 | A~E등급, 5개 상권유형별 가중치 차등 적용 |
 | **추세 분석** | 선형회귀, 이동평균, 전년비, 이상치 탐지 | MA(3,6,12), YoY%, Z-score (threshold=2.0) |
 
-### 상권 스코어링 상세
+## 상권 스코어링 기준
 
 **6개 지표 (기본 가중치)**
 
@@ -71,6 +169,8 @@
 | 부동산가격 | 0.10 | 평균 거래금액 |
 | 업종다양성 | 0.10 | 업종 분포 다양성 |
 
+가중합 점수를 기반으로 **A등급**(상위 20%) ~ **E등급**(하위 20%)으로 분류합니다.
+
 **5개 상권 유형별 차등 가중치**
 
 | 유형 | 분류 기준 | 특징 |
@@ -81,9 +181,59 @@
 | 유흥형 | 야간 비율 높음 | 유동인구+매출 균등 가중 |
 | 혼합형 | 기타 | 균등 가중치 |
 
-### 시뮬레이션 엔진
+## 캐싱 전략
 
-#### What-if 시나리오 (4종)
+SQLite 기반 API 응답 캐시로 반복 요청을 최소화합니다.
+
+| 데이터 유형 | Cache TTL |
+|-------------|-----------|
+| 지하철, 인구 | 72시간 |
+| 부동산, 상권 | 168시간 (7일) |
+
+- 캐시 키: `SHA256(endpoint:params_json)`
+- 조회 시 자동 만료 확인
+
+## 시뮬레이션 모델
+
+### 에이전트 기반 모델 (Mesa)
+- 주민 에이전트: 거주지/직장/소득수준(1~5) 보유
+- **현실적 7단계 일일 루틴**:
+  1. 09시 출근 → 직장동 이동
+  2. 12시 점심 → 직장 주변 소비
+  3. 13시 오후업무 → 카페/간식 (30% 확률)
+  4. 18시 퇴근 → 거주동 이동
+  5. 20시 저녁외출 → 마트/상점 소비 (소득별 20~60% 확률)
+  6. 22시 귀가
+  7. 수면 → 리셋
+- 소득별 일 소비액: 2만원 ~ 12만원
+- **이동 패턴 추적**: 출발지→도착지별 이동 횟수 기록 (`get_movement_summary()`)
+- **실제 데이터 연동**: 처리된 인구/지하철 parquet에서 자동 모델 생성
+- 30일 단위 시뮬레이션, 인구 100:1 스케일링
+
+**소득 수준별 기본 소비 (원/일)**
+
+| 수준 | 기본소비 | 분포비율 |
+|------|----------|----------|
+| 1 | 20,000 | 15% |
+| 2 | 35,000 | 25% |
+| 3 | 55,000 | 30% |
+| 4 | 80,000 | 20% |
+| 5 | 120,000 | 10% |
+
+### OD 중력모델
+- `Flow(i,j) = k × Pop(i) × Employment(j) / Distance(i,j)^β`
+- β = 2.0 (거리 감쇠 계수), k = 1.0
+- 지하철 승하차 비율로 주거/상업/혼합 지역 자동 분류
+- **지하철+버스 통합 OD 행렬**: 가중 결합으로 정확도 향상 (`build_od_matrix_with_bus()`)
+- 행정동별 유입/유출 요약 및 순유입 분석
+- 변화 발생 시 파급효과 추정
+
+**동 유형 분류:**
+- 직장지역: 유입비율 > 0.15
+- 주거지역: 유입비율 < -0.15
+- 혼합: 그 외
+
+### What-if 시나리오 (4종)
 
 | 시나리오 | 주요 파라미터 | 영향 모델 |
 |----------|---------------|-----------|
@@ -107,40 +257,7 @@
         └── 환승 2회+: decay = 0.15 × 0.9^(역 수)
 ```
 
-#### 에이전트 기반 시뮬레이션 (Mesa)
-
-**에이전트: 주민 (Resident)**
-- 속성: 거주동, 직장동, 소득수준 (1~5), 현재위치, 일일소비
-
-**소득 수준별 기본 소비 (원/일)**
-
-| 수준 | 기본소비 | 분포비율 |
-|------|----------|----------|
-| 1 | 20,000 | 15% |
-| 2 | 35,000 | 25% |
-| 3 | 55,000 | 30% |
-| 4 | 80,000 | 20% |
-| 5 | 120,000 | 10% |
-
-**일일 4단계 사이클**
-1. **오전** → 직장동으로 이동
-2. **주간** → 기본소비 × 40% × random(0.5~1.5) 지출
-3. **저녁** → 거주동으로 이동
-4. **야간** → 기본소비 × 60% × random(0.3~1.5) 지출
-
-#### OD 유동 모델 (중력 모델)
-
-```
-Flow(i→j) = k × Population(i) × Employment(j) / Distance(i,j)^β
-```
-- β = 2.0 (거리 감쇠 계수), k = 1.0
-
-**동 유형 분류:**
-- 직장지역: 유입비율 > 0.15
-- 주거지역: 유입비율 < -0.15
-- 혼합: 그 외
-
-#### 시계열 예측
+### 시계열 예측
 
 | 모델 | 설정 | 용도 |
 |------|------|------|
@@ -148,106 +265,8 @@ Flow(i→j) = k × Population(i) × Employment(j) / Distance(i,j)^β
 | **ARIMA** (대체) | order=(1,1,1), freq=MS | Prophet 미설치 시 대체 |
 
 - 기본 예측 기간: 12개월
-- 출력: 예측값(yhat), 상한(yhat_upper), 하한(yhat_lower)
-
----
-
-## 프로젝트 구조
-
-```
-real_estate/
-├── config/
-│   └── settings.py                 # API 키, 25개 구 코드, 엔드포인트, 경로 설정
-├── src/
-│   ├── collectors/                 # 7개 공공 API 수집기
-│   │   ├── base_collector.py       #   추상 베이스 (캐시, 재시도, Rate Limit)
-│   │   ├── subway_collector.py     #   서울 지하철 승하차 인원
-│   │   ├── realestate_collector.py #   국토부 아파트/빌라 실거래
-│   │   ├── commercial_collector.py #   소상공인 상가 정보
-│   │   ├── population_collector.py #   생활인구 + 직장인구
-│   │   └── spending_collector.py   #   서울시 추정매출
-│   ├── processors/                 # 데이터 정제 + 행정동 매핑
-│   │   ├── geo_processor.py        #   핵심: 좌표→행정동, 그리드, BJD↔HJD
-│   │   ├── subway_processor.py     #   역→동 매핑, 월별 집계
-│   │   ├── realestate_processor.py #   거래일 파싱, 평당가 계산
-│   │   ├── commercial_processor.py #   업소 집계, 업종 분포
-│   │   └── population_processor.py #   인구 집계, 피크시간 분석
-│   ├── analysis/                   # 통계 분석
-│   │   ├── correlation.py          #   교차상관, 유의성 검정, 시차 상관
-│   │   ├── clustering.py           #   K-Means 유사 행정동 클러스터링
-│   │   ├── scoring.py              #   상권 활성도 스코어링 (6지표, 5유형)
-│   │   └── trend_analysis.py       #   선형추세, 이동평균, YoY, 이상치
-│   ├── simulation/                 # 시뮬레이션 엔진
-│   │   ├── scenario_engine.py      #   What-if 시나리오 (4종 + 파급효과)
-│   │   ├── agent_model.py          #   Mesa 에이전트 (주민 출퇴근/소비)
-│   │   ├── flow_model.py           #   중력 모델 OD 행렬, 동 유형 분류
-│   │   └── forecast.py             #   Prophet/ARIMA 시계열 예측
-│   ├── models/                     # Pydantic 데이터 모델
-│   │   └── __init__.py             #   DongSummary, SubwayStation, ScenarioInput
-│   └── utils/                      # 유틸리티
-│       ├── api_client.py           #   HTTP 클라이언트 (재시도, Rate Limit)
-│       ├── cache.py                #   SQLite TTL 캐시
-│       └── geo_utils.py            #   Haversine, 좌표 변환 (EPSG4326↔5179)
-├── dashboard/
-│   ├── app.py                      # Streamlit 메인 (데이터 상태 체크)
-│   ├── pages/                      # 7개 분석 페이지
-│   │   ├── 01_overview.py          #   서울 전체 현황 KPI + 행정동 지도
-│   │   ├── 02_subway.py            #   지하철 승하차 분석 (역별, 시계열)
-│   │   ├── 03_realestate.py        #   부동산 실거래가 (추이, 면적별)
-│   │   ├── 04_commercial.py        #   상권 분석 (업종 분포, 상권 지도)
-│   │   ├── 05_population.py        #   생활/직장 인구 (코로플레스 지도)
-│   │   ├── 06_correlation.py       #   상관관계 종합 (행렬, 유의성)
-│   │   └── 07_simulation.py        #   시뮬레이션 (시나리오, 예측, ABM)
-│   └── components/                 # 공통 컴포넌트
-│       ├── chart_builder.py        #   Plotly 차트 (bar, line, heatmap)
-│       ├── filters.py              #   UI 필터 (날짜, 구, 카테고리)
-│       └── map_viewer.py           #   Folium 지도 시각화
-├── scripts/
-│   ├── collect_all.py              # 데이터 수집 오케스트레이터
-│   ├── process_all.py              # 데이터 처리 파이프라인
-│   └── seed_geodata.py             # GeoJSON 다운로드 + BJD↔HJD 초기화
-├── tests/                          # 61개 유닛 테스트
-│   ├── test_analysis.py            #   상관분석, 클러스터링, 스코어링 (20개)
-│   ├── test_simulation.py          #   시나리오, 에이전트, 유동, 예측 (31개)
-│   └── test_utils.py               #   Haversine, 캐시 (6개)
-├── data/
-│   ├── raw/                        # API 원본 Parquet
-│   ├── processed/                  # 처리 완료 Parquet
-│   ├── geo/                        # GeoJSON, BJD↔HJD 매핑
-│   └── cache/                      # SQLite API 캐시
-├── pyproject.toml                  # 프로젝트 메타데이터 & 의존성
-├── .env.example                    # API 키 템플릿
-└── .env                            # API 키 (git-ignored)
-```
-
----
-
-## 데이터 소스
-
-| 데이터 | API | 소스 | 수집 주기 |
-|--------|-----|------|-----------|
-| 지하철 승하차 | 서울시 지하철 호선별 역별 승하차 인원 | data.seoul.go.kr | 일별 |
-| 아파트 실거래가 | 국토교통부 아파트매매 실거래자료 | data.go.kr | 월별 |
-| 빌라 실거래가 | 국토교통부 연립다세대 매매 실거래자료 | data.go.kr | 월별 |
-| 상권/상가 | 소상공인 상가(상권)정보 | data.go.kr | 분기별 |
-| 추정매출 | 서울시 상권분석서비스 추정매출 | data.seoul.go.kr | 분기별 |
-| 생활인구 | 행정동 단위 서울 생활인구 | data.seoul.go.kr | 월별 |
-| 직장인구 | 서울시 사업체/종사자수 | data.seoul.go.kr | 월별 |
-
----
-
-## 기술 스택
-
-| 용도 | 패키지 | 버전 |
-|------|--------|------|
-| 데이터 처리 | pandas, numpy, pyarrow | ≥2.0, ≥1.24, ≥14.0 |
-| 지리 공간 | geopandas, shapely, folium | ≥0.14, ≥2.0, ≥0.15 |
-| 시각화 | streamlit, streamlit-folium, plotly | ≥1.30, ≥0.17, ≥5.18 |
-| 통계 분석 | scikit-learn, scipy | ≥1.3, ≥1.11 |
-| 시뮬레이션 | mesa | ≥2.1 |
-| 시계열 예측 | prophet, statsmodels | ≥1.1, latest |
-| 설정 관리 | python-dotenv, pydantic, pydantic-settings | ≥1.0, ≥2.5, ≥2.1 |
-| Python | | ≥ 3.10 |
+- **다중 지표 지원**: 부동산 거래금액, 추정매출, 유동인구(지하철 하차), 생활인구
+- 행정동 단위 개별 예측 + 신뢰구간 시각화
 
 ---
 
@@ -283,13 +302,18 @@ python scripts/seed_geodata.py
 ### 4. 데이터 수집
 
 ```bash
-# 전체 수집 (특정 월)
+# 전체 수집 (지하철, 부동산, 상가, 인구, 매출, 버스)
 python scripts/collect_all.py --year 2024 --month 1
 
 # 개별 수집
 python scripts/collect_all.py --target subway --year 2024 --month 1
+python scripts/collect_all.py --target bus --year 2024 --month 1
 
-# 수집 가능 대상: subway, realestate, commercial, population, spending
+# 실시간 데이터 수집 (82개 주요 지역 인구/상권)
+python scripts/collect_all.py --target live
+
+# 실시간 스냅샷 누적 수집 (1시간마다 실행 → 시간대별 유동 패턴 축적)
+python scripts/collect_all.py --target live-snapshot
 ```
 
 ### 5. 데이터 처리
@@ -311,28 +335,83 @@ streamlit run dashboard/app.py
 
 ## 대시보드 페이지
 
-| # | 페이지 | 주요 시각화 | 분석 내용 |
-|---|--------|-------------|-----------|
-| 1 | **서울 전체 현황** | KPI 카드, 행정동 지도 | 주요 지표 요약, 공간 분포 |
-| 2 | **지하철 승하차** | 역별 순위, 시계열, 히트맵 | 유동인구 흐름, 출퇴근 패턴 |
-| 3 | **부동산 실거래가** | 가격 추이, 구별 비교 | 아파트/빌라 가격 변동, 면적별 분석 |
-| 4 | **상권 분석** | 업종 분포, 상권 지도 | 업종 밀도, 추정매출 분포 |
-| 5 | **생활/직장 인구** | 코로플레스 지도, 분포 차트 | 주야간 인구 차이, 직주비 |
-| 6 | **상관관계 종합** | 상관행렬 히트맵, 산점도 | 변수 간 유의미한 상관, 시차 분석 |
-| 7 | **시뮬레이션** | 시나리오 비교, 예측 차트 | What-if, 시계열 예측, 에이전트 결과 |
+1. **서울 전체 현황** - 주요 KPI 및 행정동 지도
+2. **지하철 승하차 분석** - 역별 순위, 시계열, 히트맵
+3. **부동산 실거래가** - 가격 추이, 구별 비교, 면적별 분석
+4. **상권 분석** - 업종 분포, 상권 지도, 추정매출
+5. **생활/직장 인구** - 인구 분포, 코로플레스 지도
+6. **상관관계 종합** - 변수 간 상관행렬, 유의성 검정
+7. **시뮬레이션** - 4개 탭: What-if 시나리오, 시계열 예측, 에이전트 모델, OD 유동 분석
+8. **출퇴근 유동 분석** - 시간대별 인구 유동, 목적지 유형, 출퇴근 OD, 실시간 스냅샷
+9. **시뮬레이션 지도** - Folium 기반 4종 인터랙티브 지도 시각화
 
----
+## 출퇴근 유동 분석
 
-## 데이터 파이프라인
+사람들이 **어디서 출발해서 어디로 가는지**, 그리고 **왜 가는지**를 추정합니다.
 
+### 분석 방법
+- **시간대별 인구 비교**: 야간(0~6시) 상주인구 vs 주간(10~17시) 활동인구 비교로 유입/유출 방향 파악
+- **주간유입률** = (주간인구 - 야간인구) / 야간인구 × 100%
+  - 양수 → 아침에 사람들이 들어오는 곳 (직장, 학교 밀집)
+  - 음수 → 아침에 사람들이 빠져나가는 곳 (주거 밀집)
+- **목적지 유형 추정**: 상가 업종(사무실/학원/음식점/병원 등)으로 방문 목적 분류
+- **교통 데이터 보조**: 지하철/버스 승하차로 유동 방향 교차 검증
+
+### 실시간 스냅샷 누적 분석
+82개 주요 장소의 실시간 인구를 **1시간마다 누적 수집**하여 실측 유동 패턴을 구축합니다.
+
+```bash
+# 1시간마다 cron/스케줄러로 실행
+python scripts/collect_all.py --target live-snapshot
 ```
-1. Collection    API → BaseCollector (cache/retry) → data/raw/*.parquet
-2. Processing    Raw → GeoProcessor (spatial join) → Processors → data/processed/*.parquet
-3. Integration   Processed → 행정동코드+연월 기준 merge → integrated.parquet
-4. Analysis      Integrated → Correlation, Clustering, Scoring, Trend
-5. Simulation    Baseline → Scenarios, Agent Model, Forecasts
-6. Visualization All outputs → Streamlit Dashboard (7 pages)
-```
+
+누적된 스냅샷으로 분석하는 항목:
+- **장소별 기능 자동 분류**: 시간대 패턴으로 오피스/주거지/상권/유흥/관광지 구분
+- **24시간 인구 곡선**: 장소별 시간대별 실측 인구 프로파일
+- **유입/유출 방향**: 오전 유입량, 저녁 유출량으로 출퇴근 패턴 판별
+- **평일 vs 주말 비교**: 주말 > 평일이면 관광/쇼핑, 평일 > 주말이면 오피스
+
+| 장소기능 | 판별 기준 |
+|---------|----------|
+| 오피스 | 주야비율 > 2.0 (주간 인구가 야간의 2배 이상) |
+| 강력오피스 | 주야비율 > 5.0 |
+| 상권 | 저녁/주간 비율 > 1.2, 피크시간 14~21시 |
+| 주거지 | 주야비율 < 0.7 |
+| 유흥 | 피크시간 22시 이후 |
+
+### 지역유형 자동 분류
+| 주간유입률 | 지역유형 |
+|-----------|---------|
+| +100% 이상 | 강력직장밀집 |
+| +30% ~ +100% | 직장밀집 |
+| -10% ~ +30% | 혼합 |
+| -30% ~ -10% | 주거밀집 |
+| -30% 미만 | 강력주거밀집 |
+
+### 목적지 유형
+상가 대분류 업종 기반으로 각 행정동의 방문 목적 비율을 추정합니다:
+- **직장**: 금융, IT, 제조, 도매, 부동산, 공공행정 등
+- **학교·학원**: 교육 관련 업종
+- **소비·여가**: 음식점, 카페, 숙박, 스포츠, 소매
+- **의료**: 병원, 약국
+
+## 시뮬레이션 지도 시각화
+
+에이전트 시뮬레이션 결과를 **Folium 인터랙티브 지도**로 시각화합니다.
+
+### 지도 4종
+1. **소비 히트맵**: HeatMap + CircleMarker로 행정동별 소비 강도 표시. 클릭 시 상세 팝업 (거주/직장인구, 직주비율, 소비순위, 지역 특성)
+2. **출퇴근 유동 흐름**: AntPath 애니메이션 화살표로 출근/퇴근 이동 경로 표시. 화살표 굵기 = 이동량
+3. **직장밀집 vs 주거밀집**: 빨강(직장밀집) / 파랑(주거밀집) / 회색(혼합) 분류 + 구 경계선
+4. **1인당 소비 효율**: 총인구 대비 소비액으로 상권 활성도 평가
+
+### 지도 기능
+- **서울 50개 동** 커버 (강남·서초, 잠실·송파, 마포·홍대, 여의도, 종로, 노원 등)
+- **25개 구 GeoJSON 경계선** 오버레이
+- **미니맵** (우하단 위치 확인)
+- **배경 지도 선택** (밝은/어두운/OSM/Toner)
+- **인터랙티브 팝업** — 직주비율 바차트, 지역 특성, 소비 순위
+- **일별 소비 추이 차트** — 전체 합계 + 상위 5개 동 비교
 
 ---
 
@@ -348,7 +427,17 @@ python -m pytest tests/test_simulation.py -v   # 시나리오, 에이전트, 유
 python -m pytest tests/test_utils.py -v        # Haversine, 캐시 (6개)
 ```
 
-총 **61개 유닛 테스트** | 모두 통과
+49개 테스트 (분석 5 + 출퇴근 6 + 실시간유동 9 + 시뮬레이션 24 + 유틸리티 5):
+
+- **live_flow_analyzer**: 시간대 프로파일, 기능 분류, 유입유출 방향, 평일주말, 장소 상세
+- **commute_analyzer**: 시간대 유동, 목적지 유형, OD 추정, 종합 분석
+- **agent_model**: 7단계 루틴, 이동 기록, 실제 데이터 연동, 엣지 케이스
+- **scenario_engine**: 개별 시나리오 3종, 복합 시나리오, 비교, 파급효과 (OD fallback)
+- **flow_model**: 지역유형 분류, 영향 추정, 유동 요약
+- **forecast**: ARIMA 예측, 데이터 부족 처리, 행정동별 일괄 예측
+- **trend_analysis**: 이동평균, YoY 변화율, 이상치 탐지
+- **analysis**: 상관행렬, 유의성 검정, 클러스터링, 스코어링
+- **utils**: Haversine 거리, SQLite 캐시 CRUD
 
 ---
 
@@ -358,12 +447,12 @@ python -m pytest tests/test_utils.py -v        # Haversine, 캐시 (6개)
 
 | API | 상태 | 비고 |
 |-----|------|------|
-| 지하철 승하차 (Seoul Open) | ✅ 정상 | `SEOUL_OPEN_API_KEY` 필요 |
-| 생활인구 (Seoul Open) | ⚠️ 빈 응답 | 특정 기간 데이터 미제공 가능 |
-| 추정매출 (Seoul Open) | ⚠️ 빈 응답 | 분기 단위, 데이터 지연 가능 |
-| 아파트 실거래 (MOLIT) | ❌ 연결 불가 | `openapi.molit.go.kr:8081` 서버 간헐적 차단 |
-| 빌라 실거래 (MOLIT) | ❌ 연결 불가 | 동일 서버 이슈 |
-| 상가 정보 (data.go.kr) | ✅ 정상 | `DATA_GO_KR_API_KEY` 필요 |
+| 지하철 승하차 (Seoul Open) | 정상 | `SEOUL_OPEN_API_KEY` 필요 |
+| 생활인구 (Seoul Open) | 빈 응답 가능 | 특정 기간 데이터 미제공 가능 |
+| 추정매출 (Seoul Open) | 빈 응답 가능 | 분기 단위, 데이터 지연 가능 |
+| 아파트 실거래 (MOLIT) | 연결 불가 가능 | `openapi.molit.go.kr:8081` 서버 간헐적 차단 |
+| 빌라 실거래 (MOLIT) | 연결 불가 가능 | 동일 서버 이슈 |
+| 상가 정보 (data.go.kr) | 정상 | `DATA_GO_KR_API_KEY` 필요 |
 
 ### 자주 발생하는 에러
 
@@ -403,4 +492,4 @@ python -m pytest tests/test_utils.py -v        # Haversine, 캐시 (6개)
 
 ## 라이선스
 
-MIT License
+이 프로젝트는 학습 및 연구 목적으로 제작되었습니다. 공공 API 데이터의 사용은 각 API 제공기관의 이용약관을 따릅니다.

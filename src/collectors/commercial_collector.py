@@ -108,15 +108,19 @@ class CommercialCollector(BaseCollector):
         rename = {k: v for k, v in column_map.items() if k in df.columns}
         df = df.rename(columns=rename)
 
-        for col in ["경도", "위도"]:
+        numeric_cols = ["경도", "위도", "지번본번", "지번부번", "건물본번", "건물부번"]
+        for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        # 코드 컬럼의 빈 문자열을 NaN 처리 후 문자열 타입 유지
+        # 빈 문자열을 None으로 변환하여 parquet 저장 오류 방지
+        df = df.replace("", None)
+
+        # 코드 컬럼은 문자열 타입 유지
         code_cols = ["행정동코드", "법정동코드", "지번코드", "도로명코드", "건물관리번호"]
         for col in code_cols:
             if col in df.columns:
-                df[col] = df[col].replace("", pd.NA).astype("string")
+                df[col] = df[col].astype("string")
 
         return df
 

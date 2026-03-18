@@ -119,10 +119,35 @@ def process_spending():
     logger.info("매출 처리 완료: %d건 → %s", len(df), output)
 
 
+def process_bus():
+    """버스 데이터 처리."""
+    from src.processors.geo_processor import GeoProcessor
+
+    files = sorted(RAW_DIR.glob("bus_*.parquet"))
+    if not files:
+        logger.warning("버스 원본 파일 없음")
+        return
+
+    df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    logger.info("버스 원본: %d건", len(df))
+
+    # 정류장 좌표가 있으면 행정동 매핑
+    if "위도" in df.columns and "경도" in df.columns:
+        try:
+            geo = GeoProcessor()
+            df = geo.coords_to_dong_batch(df, lat_col="위도", lon_col="경도")
+        except FileNotFoundError:
+            logger.warning("GeoJSON 없이 기본 처리")
+
+    output = PROCESSED_DIR / "bus.parquet"
+    df.to_parquet(output, index=False)
+    logger.info("버스 처리 완료: %d건 → %s", len(df), output)
+
+
 def create_integrated():
     """통합 데이터 생성 - 행정동코드 + 연월 기준."""
     dfs = {}
-    for name in ["subway", "realestate", "population", "spending"]:
+    for name in ["subway", "realestate", "population", "spending", "bus"]:
         path = PROCESSED_DIR / f"{name}.parquet"
         if path.exists():
             dfs[name] = pd.read_parquet(path)
@@ -156,6 +181,7 @@ def main():
         ("상가", process_commercial),
         ("인구", process_population),
         ("매출", process_spending),
+        ("버스", process_bus),
     ]
 
     for name, func in processors:
