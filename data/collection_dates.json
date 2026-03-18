@@ -1,0 +1,140 @@
+{
+  "description": "데이터 수집 일자 기록",
+  "last_updated": "2026-03-18",
+  "collections": {
+    "subway": {
+      "file": "raw/subway_202401.parquet",
+      "collected_at": "2026-03-17",
+      "data_period": "2024-01",
+      "source": "서울교통공사 지하철 승하차 API",
+      "records": null
+    },
+    "realestate_apt": {
+      "file": "raw/realestate_apt_202401.parquet",
+      "collected_at": "2026-03-17",
+      "data_period": "2024-01",
+      "source": "국토부 아파트 실거래가 API",
+      "records": null
+    },
+    "realestate_officetel": {
+      "file": "raw/realestate_officetel_202401.parquet",
+      "collected_at": "2026-03-17",
+      "data_period": "2024-01",
+      "source": "국토부 오피스텔 실거래가 API",
+      "records": null
+    },
+    "realestate_villa": {
+      "file": "raw/realestate_villa_202401.parquet",
+      "collected_at": "2026-03-17",
+      "data_period": "2024-01",
+      "source": "국토부 연립다세대 실거래가 API",
+      "records": null
+    },
+    "commercial": {
+      "file": "raw/commercial.parquet",
+      "collected_at": "2026-03-17",
+      "data_period": "최신",
+      "source": "소상공인 상가정보 API",
+      "records": null
+    },
+    "bus": {
+      "file": "raw/bus_20260313.parquet",
+      "collected_at": "2026-03-17",
+      "data_period": "2026-03-13",
+      "source": "서울 버스 승하차 API",
+      "records": null
+    },
+    "live_commercial_detail": {
+      "file": "raw/live_commercial_detail.parquet",
+      "collected_at": "2026-03-17",
+      "data_period": "실시간",
+      "source": "실시간 상권 API",
+      "records": null
+    },
+    "live_commercial_summary": {
+      "file": "raw/live_commercial_summary.parquet",
+      "collected_at": "2026-03-17",
+      "data_period": "실시간",
+      "source": "실시간 상권 요약 API",
+      "records": null
+    },
+    "household": {
+      "file": "raw/household.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2025-12 ~ 2026-03",
+      "source": "행안부 도로명별 주민등록 세대현황 API",
+      "records": 40647,
+      "note": "구로구 502 에러로 1,000건만 수집"
+    },
+    "household_summary": {
+      "file": "raw/household_summary.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2025-12 ~ 2026-03",
+      "source": "행안부 (구별 집계)",
+      "records": 25
+    },
+    "subscription_apt": {
+      "file": "raw/subscription_apt.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "전체",
+      "source": "청약홈 APT 분양정보 API",
+      "records": 50640
+    },
+    "subscription_officetel": {
+      "file": "raw/subscription_officetel.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "전체",
+      "source": "청약홈 오피스텔 분양정보 API",
+      "records": 2485
+    },
+    "spending_2024Q1": {
+      "file": "raw/spending_2024Q1.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2024 Q1",
+      "source": "서울 상권분석서비스 추정매출 API (VwsmTrdarSelngQq)",
+      "records": 21910
+    },
+    "spending_2024Q2": {
+      "file": "raw/spending_2024Q2.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2024 Q2",
+      "source": "서울 상권분석서비스 추정매출 API (VwsmTrdarSelngQq)",
+      "records": 21887
+    },
+    "spending_2024Q3": {
+      "file": "raw/spending_2024Q3.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2024 Q3",
+      "source": "서울 상권분석서비스 추정매출 API (VwsmTrdarSelngQq)",
+      "records": 21718
+    },
+    "spending_2024Q4": {
+      "file": "raw/spending_2024Q4.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2024 Q4",
+      "source": "서울 상권분석서비스 추정매출 API (VwsmTrdarSelngQq)",
+      "records": 21664
+    },
+    "population_202601": {
+      "file": "raw/population_202601.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2026-01 (1,8,15,22일 샘플링)",
+      "source": "서울 열린데이터 생활인구 API",
+      "records": 40704
+    },
+    "population_202602": {
+      "file": "raw/population_202602.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2026-02 (1,8,15,22일 샘플링)",
+      "source": "서울 열린데이터 생활인구 API",
+      "records": 40704
+    },
+    "population_202603": {
+      "file": "raw/population_202603.parquet",
+      "collected_at": "2026-03-18",
+      "data_period": "2026-03 (1,8일만 — 15,22일 미제공)",
+      "source": "서울 열린데이터 생활인구 API",
+      "records": 20352
+    }
+  }
+}

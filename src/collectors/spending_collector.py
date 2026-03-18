@@ -41,9 +41,9 @@ class SpendingCollector(BaseCollector):
             end_idx = start_idx + batch_size - 1
             url = (
                 f"{settings.seoul_api_base}/{self.api_key}/json/"
-                f"{settings.spending_endpoint}/{start_idx}/{end_idx}"
+                f"{settings.spending_endpoint}/{start_idx}/{end_idx}/{stdr_qu_cd}"
             )
-            params = {"STDR_QU_CD": stdr_qu_cd}
+            params = {}
 
             try:
                 data = self.fetch_with_cache(url, params)

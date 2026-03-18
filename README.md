@@ -7,7 +7,7 @@
 
 ## 주요 기능
 
-- **데이터 수집**: 10개 공공 API에서 지하철, 버스, 부동산, 상권, 인구, 매출, 실시간 데이터 자동 수집
+- **데이터 수집**: 12개 공공 API에서 지하철, 버스, 부동산, 상권, 인구, 매출, 세대수, 청약, 실시간 데이터 자동 수집
 - **행정동 매핑**: 좌표 기반 spatial join으로 모든 데이터를 행정동코드 + 기준연월로 통합
 - **상관분석**: 유동인구-부동산-매출 간 교차 상관분석, 시차 상관분석
 - **클러스터링**: K-Means 기반 유사 행정동 그룹화
@@ -36,7 +36,9 @@ real_estate/
 │   │   ├── spending_collector.py       #   추정매출
 │   │   ├── live_commercial_collector.py#   실시간 상권 활동 (82개 지역)
 │   │   ├── live_population_collector.py#   실시간 인구밀도 (82개 지역)
-│   │   └── live_snapshot_collector.py  #   실시간 스냅샷 누적 수집
+│   │   ├── live_snapshot_collector.py  #   실시간 스냅샷 누적 수집
+│   │   ├── household_collector.py      #   세대수 (행안부 + 국토부)
+│   │   └── subscription_collector.py   #   청약홈 분양정보/경쟁률
 │   ├── processors/                     # 데이터 정제 + 행정동 매핑
 │   │   ├── geo_processor.py            #   좌표→행정동 Spatial Join
 │   │   ├── subway_processor.py         #   지하철 집계
@@ -110,6 +112,8 @@ real_estate/
 | 직장인구 | 서울시 사업체/종사자수 | data.seoul.go.kr | 월별 |
 | 실시간 인구밀도 | 서울시 실시간 도시데이터 (82개 주요 지역) | data.seoul.go.kr | 실시간 |
 | 실시간 상권 활동 | 서울시 실시간 도시데이터 (82개 주요 지역) | data.seoul.go.kr | 실시간 |
+| 세대수 | 행안부 도로명별 주민등록 세대현황 | data.go.kr | 월별 |
+| 청약 분양정보 | 한국부동산원 청약홈 분양정보/경쟁률 | data.go.kr | 수시 |
 
 ## 기술 스택
 
@@ -139,7 +143,7 @@ real_estate/
 
 **데이터 처리 흐름:**
 
-1. **수집(Collect)**: 10개 공공 API에서 원본 데이터 수집 → `data/raw/*.parquet`
+1. **수집(Collect)**: 12개 공공 API에서 원본 데이터 수집 → `data/raw/*.parquet`
 2. **처리(Process)**: 좌표→행정동 Spatial Join, 정제, 월별 집계 → `data/processed/integrated.parquet`
 3. **분석(Analyze)**: 상관분석, K-Means 클러스터링, 상권 스코어링 (A~E 등급)
 4. **시뮬레이션(Simulate)**: 에이전트 모델, OD 중력모델, What-if 시나리오, 시계열 예측
@@ -314,6 +318,10 @@ python scripts/collect_all.py --target live
 
 # 실시간 스냅샷 누적 수집 (1시간마다 실행 → 시간대별 유동 패턴 축적)
 python scripts/collect_all.py --target live-snapshot
+
+# 세대수/청약
+python scripts/collect_all.py --target household          # 행안부 세대현황
+python scripts/collect_all.py --target subscription        # 청약홈 분양정보
 ```
 
 ### 5. 데이터 처리
@@ -427,7 +435,7 @@ python -m pytest tests/test_simulation.py -v   # 시나리오, 에이전트, 유
 python -m pytest tests/test_utils.py -v        # Haversine, 캐시 (6개)
 ```
 
-49개 테스트 (분석 5 + 출퇴근 6 + 실시간유동 9 + 시뮬레이션 24 + 유틸리티 5):
+79개 테스트:
 
 - **live_flow_analyzer**: 시간대 프로파일, 기능 분류, 유입유출 방향, 평일주말, 장소 상세
 - **commute_analyzer**: 시간대 유동, 목적지 유형, OD 추정, 종합 분석
@@ -448,8 +456,10 @@ python -m pytest tests/test_utils.py -v        # Haversine, 캐시 (6개)
 | API | 상태 | 비고 |
 |-----|------|------|
 | 지하철 승하차 (Seoul Open) | 정상 | `SEOUL_OPEN_API_KEY` 필요 |
-| 생활인구 (Seoul Open) | 빈 응답 가능 | 특정 기간 데이터 미제공 가능 |
-| 추정매출 (Seoul Open) | 빈 응답 가능 | 분기 단위, 데이터 지연 가능 |
+| 생활인구 (Seoul Open) | 정상 | YYYYMMDD 일 단위 조회, 2026년 데이터만 제공 |
+| 추정매출 (Seoul Open) | 정상 | 분기 단위 (`VwsmTrdarSelngQq`), URL 경로에 분기코드 포함 |
+| 세대수 (행안부) | 정상 | 도로명코드 단위, 3개월 이내 기간만 조회 가능 |
+| 청약 분양정보 (한국부동산원) | 정상 | APT/오피스텔 분양정보 + 경쟁률 |
 | 아파트 실거래 (MOLIT) | 연결 불가 가능 | `openapi.molit.go.kr:8081` 서버 간헐적 차단 |
 | 빌라 실거래 (MOLIT) | 연결 불가 가능 | 동일 서버 이슈 |
 | 상가 정보 (data.go.kr) | 정상 | `DATA_GO_KR_API_KEY` 필요 |

@@ -1,5 +1,6 @@
 """서울시 생활인구 및 직장인구 수집."""
 
+import calendar
 import logging
 
 import pandas as pd
@@ -34,49 +35,60 @@ class PopulationCollector(BaseCollector):
             month: 월
             dong_code: 특정 행정동코드 (None이면 전체)
         """
-        date_str = f"{year}-{month:02d}"
-        start_idx = 1
-        batch_size = 1000
+        # API는 YYYYMMDD 일 단위 조회만 지원 — 월의 1일, 8일, 15일, 22일 샘플링
+        days_in_month = calendar.monthrange(year, month)[1]
+        sample_days = [1, 8, 15, 22]
         all_rows = []
 
-        while True:
-            end_idx = start_idx + batch_size - 1
-            url = (
-                f"{settings.seoul_api_base}/{self.api_key}/json/"
-                f"{settings.population_endpoint}/{start_idx}/{end_idx}/{date_str}"
-            )
-            if dong_code:
-                url += f"/{dong_code}"
+        for day in sample_days:
+            if day > days_in_month:
+                continue
+            date_str = f"{year}{month:02d}{day:02d}"
+            logger.info("생활인구 수집: %s", date_str)
 
-            params = {}
-            try:
-                data = self.fetch_with_cache(url, params)
-            except Exception:
-                logger.exception("생활인구 API 호출 실패: %s", url)
-                break
+            start_idx = 1
+            batch_size = 1000
 
-            if not isinstance(data, dict):
-                break
+            while True:
+                end_idx = start_idx + batch_size - 1
+                url = (
+                    f"{settings.seoul_api_base}/{self.api_key}/json/"
+                    f"{settings.population_endpoint}/{start_idx}/{end_idx}/{date_str}"
+                )
+                if dong_code:
+                    url += f"/{dong_code}"
 
-            api_data = data.get(settings.population_endpoint)
-            if not api_data:
-                break
+                params = {}
+                try:
+                    data = self.fetch_with_cache(url, params)
+                except Exception:
+                    logger.exception("생활인구 API 호출 실패: %s", url)
+                    break
 
-            result = api_data.get("RESULT", {})
-            if result.get("CODE") != "INFO-000":
-                logger.warning("API 에러: %s", result.get("MESSAGE"))
-                break
+                if not isinstance(data, dict):
+                    break
 
-            rows = api_data.get("row", [])
-            if not rows:
-                break
+                api_data = data.get(settings.population_endpoint)
+                if not api_data:
+                    break
 
-            all_rows.extend(rows)
+                result = api_data.get("RESULT", {})
+                if result.get("CODE") != "INFO-000":
+                    logger.warning("API 에러 (%s): %s", date_str, result.get("MESSAGE"))
+                    break
 
-            total = int(api_data.get("list_total_count", 0))
-            if end_idx >= total:
-                break
-            start_idx = end_idx + 1
+                rows = api_data.get("row", [])
+                if not rows:
+                    break
+
+                all_rows.extend(rows)
+
+                total = int(api_data.get("list_total_count", 0))
+                if end_idx >= total:
+                    break
+                start_idx = end_idx + 1
+
+            logger.info("생활인구 %s: 누적 %d건", date_str, len(all_rows))
 
         if not all_rows:
             return pd.DataFrame()

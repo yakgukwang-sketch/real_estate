@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     seoul_api_base: str = "http://openapi.seoul.go.kr:8088"
     subway_endpoint: str = "CardSubwayStatsNew"
     population_endpoint: str = "SPOP_LOCAL_RESD_DONG"
-    spending_endpoint: str = "tbgisg"
+    spending_endpoint: str = "VwsmTrdarSelngQq"
 
     # 서울시 자치구 법정동코드 (앞 5자리)
     seoul_gu_codes: list[str] = [

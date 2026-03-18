@@ -21,6 +21,28 @@
   - 25개 구 도로명코드 확장
   - 대시보드 실제 데이터/기본값 토글
   - 테스트 18개 추가 (전체 79 passed)
+- [x] **세대수 데이터 수집 완료** (2026-03-18)
+  - 행안부 세대현황: 40,647건 (서울 25개 구 전체) → `data/raw/household.parquet`
+  - 구별 요약: 25개 구 세대수·인구수 집계 → `data/raw/household_summary.parquet`
+  - 청약 APT 분양: 50,640건 → `data/raw/subscription_apt.parquet`
+  - 청약 오피스텔: 2,485건 → `data/raw/subscription_officetel.parquet`
+  - 구로구 502 에러로 1,000건만 수집 (나머지 24개 구 정상)
+  - 국토부 공동주택(`apt-household`)은 단지목록 API(AptListServiceV4) 미승인으로 수집 불가
+- [x] **생활인구 수집 완료** (2026-03-18)
+  - 수집기 버그 수정: 날짜 포맷 `YYYY-MM` → `YYYYMMDD` (API는 일 단위만 지원)
+  - 월별 4일 샘플링 (1, 8, 15, 22일) 방식으로 변경
+  - 2026-01: 40,704건 → `data/raw/population_202601.parquet` (11MB)
+  - 2026-02: 40,704건 → `data/raw/population_202602.parquet` (11MB)
+  - 2026-03: 20,352건 → `data/raw/population_202603.parquet` (5.5MB, 1·8일만 제공)
+  - 참고: API에 2024~2025년 데이터 없음, 2026년만 수집 가능
+- [x] **추정매출 수집 완료** (2026-03-18)
+  - 수집기 버그 수정: 엔드포인트 `tbgisg` → `VwsmTrdarSelngQq`, 분기코드 URL 경로 포함
+  - 2024 Q1: 21,910건 → `data/raw/spending_2024Q1.parquet` (5.5MB)
+  - 2024 Q2: 21,887건 → `data/raw/spending_2024Q2.parquet` (5.6MB)
+  - 2024 Q3: 21,718건 → `data/raw/spending_2024Q3.parquet` (5.5MB)
+  - 2024 Q4: 21,664건 → `data/raw/spending_2024Q4.parquet` (5.5MB)
+  - 합계: 87,179건 (22MB), 2024년 전 분기 완료
+- [x] **수집일자 기록 파일 생성** → `data/collection_dates.json`
 
 ---
 
@@ -45,12 +67,11 @@
 
 ## 다음 단계
 
-### 1. 세대수 데이터 수집 실행 (우선순위: 높음)
+### 1. 데이터 기간 확장 (우선순위: 높음)
 
-시뮬레이션 연동 코드는 완료. 실제 데이터 수집 필요:
-- [ ] `python scripts/collect_all.py --target household` 실행 (행안부 세대현황)
-- [ ] `python scripts/collect_all.py --target apt-household` 실행 (국토부 공동주택)
-- [ ] 수집 후 대시보드에서 "실제 세대수 데이터 사용" 체크박스로 검증
+- [ ] 지하철 승하차 2~12월 추가 수집 (현재 2024-01만)
+- [ ] 부동산 실거래가 2~12월 추가 수집 (현재 2024-01만)
+- [ ] 버스 승하차 추가 일자 수집 (평일/주말 비교용)
 
 ### 2. 청약 분양 대시보드 페이지 (우선순위: 중간)
 
@@ -60,9 +81,9 @@
 
 ### 3. 통합 테스트 및 검증 (우선순위: 낮음)
 
-- [ ] 새 수집기 API 키 동작 확인 (활성화 후)
 - [ ] 대시보드 전체 구동 확인
-- [ ] README.md 최종 업데이트
+- [ ] 데이터 처리 파이프라인 재실행 (process_all.py)
+- [ ] 국토부 공동주택 단지목록 API(AptListServiceV4) 승인 후 수집
 
 ---
 
@@ -73,16 +94,16 @@
 python scripts/collect_all.py --target subway --year 2024 --month 1
 python scripts/collect_all.py --target realestate --year 2024 --month 1
 python scripts/collect_all.py --target commercial
-python scripts/collect_all.py --target population --year 2024 --month 1
-python scripts/collect_all.py --target spending --year 2024 --month 1
+python scripts/collect_all.py --target population --year 2026 --month 1   # ※ 2026년만 가능
+python scripts/collect_all.py --target spending --year 2024 --month 1     # month→분기 자동변환
 
 # 버스/실시간
 python scripts/collect_all.py --target bus --year 2024 --month 1
 python scripts/collect_all.py --target live
 python scripts/collect_all.py --target live-snapshot
 
-# 세대수/청약 (신규)
+# 세대수/청약
 python scripts/collect_all.py --target household        # 행안부 세대현황
-python scripts/collect_all.py --target apt-household     # 국토부 공동주택
+python scripts/collect_all.py --target apt-household     # 국토부 공동주택 (API 미승인)
 python scripts/collect_all.py --target subscription      # 청약홈 분양정보
 ```

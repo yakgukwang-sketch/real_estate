@@ -20,6 +20,10 @@ data/cache/
 *.sqlite
 *.db
 
+# Keep collection metadata
+!data/collection_dates.json
+!data/geo/
+
 # IDE
 .idea/
 .vscode/
