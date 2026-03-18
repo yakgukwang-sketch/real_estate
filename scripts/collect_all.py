@@ -121,6 +121,62 @@ def collect_live():
         logger.info("실시간 상권: %d건 → %s", len(comm_df), output)
 
 
+def collect_household():
+    """세대수 데이터 수집 (행안부 도로명별 주민등록 세대현황)."""
+    from src.collectors.household_collector import HouseholdCollector
+
+    collector = HouseholdCollector()
+    df = collector.collect_all_seoul_households()
+    if not df.empty:
+        output = RAW_DIR / "household.parquet"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(output, index=False)
+        logger.info("세대현황: %d건 → %s", len(df), output)
+
+        # 시군구별 요약
+        summary = collector.summarize_by_dong(df)
+        if not summary.empty:
+            summary_output = RAW_DIR / "household_summary.parquet"
+            summary.to_parquet(summary_output, index=False)
+            logger.info("세대현황 요약: %d개 구 → %s", len(summary), summary_output)
+
+
+def collect_apt_household():
+    """공동주택 단지별 세대수 수집 (국토교통부)."""
+    from src.collectors.household_collector import HouseholdCollector
+
+    collector = HouseholdCollector()
+    df = collector.collect_seoul_apt_households()
+    if not df.empty:
+        output = RAW_DIR / "apt_household.parquet"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(output, index=False)
+        logger.info("공동주택 세대수: %d건 → %s", len(df), output)
+
+
+def collect_subscription():
+    """청약홈 분양정보/경쟁률 수집."""
+    from src.collectors.subscription_collector import SubscriptionCollector
+
+    collector = SubscriptionCollector()
+
+    # APT 분양
+    apt_df = collector.collect_apt_supply()
+    if not apt_df.empty:
+        output = RAW_DIR / "subscription_apt.parquet"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        apt_df.to_parquet(output, index=False)
+        logger.info("청약 APT: %d건 → %s", len(apt_df), output)
+
+    # 오피스텔/도시형
+    ofc_df = collector.collect_officetel_supply()
+    if not ofc_df.empty:
+        output = RAW_DIR / "subscription_officetel.parquet"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        ofc_df.to_parquet(output, index=False)
+        logger.info("청약 오피스텔: %d건 → %s", len(ofc_df), output)
+
+
 def collect_live_snapshot():
     """실시간 인구 스냅샷 1회 누적 수집.
 
@@ -141,7 +197,8 @@ def main():
     parser.add_argument("--month", type=int, default=1)
     parser.add_argument("--target", type=str, default="all",
                         choices=["all", "subway", "realestate", "commercial",
-                                 "population", "spending", "bus", "live", "live-snapshot"])
+                                 "population", "spending", "bus", "live", "live-snapshot",
+                                 "household", "apt-household", "subscription"])
     args = parser.parse_args()
 
     if not settings.seoul_open_api_key and not settings.data_go_kr_api_key:
@@ -157,6 +214,9 @@ def main():
         "bus": lambda: collect_bus(args.year, args.month),
         "live": collect_live,
         "live-snapshot": collect_live_snapshot,
+        "household": collect_household,
+        "apt-household": collect_apt_household,
+        "subscription": collect_subscription,
     }
 
     if args.target == "all":
