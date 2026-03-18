@@ -41,47 +41,74 @@ class HouseholdCollector:
             logger.exception("API 호출 실패: %s", url)
             return None
 
+    # ─── 서울 25개 구의 대표 도로명코드 (12자리) ───
+    # roadNmCd = 시군구코드(5) + 도로명코드(7)
+    # 각 구에서 대표 도로 1개씩 (전체 도로를 조회하려면 도로명코드 목록이 필요)
+    SEOUL_GU_ROAD_CODES: dict[str, list[str]] = {
+        "11680": ["116804169259"],  # 강남구 - 테헤란로
+        "11650": ["116504163259"],  # 서초구 - 서초대로
+        "11710": ["117104525451"],  # 송파구 - 올림픽로
+        "11440": ["114404107013"],  # 마포구 - 월드컵북로
+        "11560": ["115604526329"],  # 영등포구 - 여의대방로
+        "11170": ["111704100164"],  # 용산구 - 이태원로
+        "11140": ["111404100029"],  # 중구 - 을지로
+        "11110": ["111104100009"],  # 종로구 - 종로
+        "11200": ["112004107029"],  # 성동구 - 왕십리로
+        "11215": ["112154107141"],  # 광진구 - 능동로
+        "11350": ["113504169007"],  # 노원구 - 동일로
+        "11500": ["115004100137"],  # 강서구 - 공항대로
+        "11530": ["115304158003"],  # 구로구 - 디지털로
+        "11740": ["117404107031"],  # 강동구 - 천호대로
+    }
+
     # ─── 1. 행정안전부: 도로명별 주민등록 인구 및 세대현황 ───
 
     def collect_registered_households(
         self,
-        sgg_name: str = "",
+        road_nm_cd: str,
+        from_ym: str = "202501",
+        to_ym: str = "202503",
     ) -> pd.DataFrame:
-        """서울시 자치구별 도로명 단위 세대현황 수집.
+        """특정 도로명코드의 세대현황 수집.
 
         Args:
-            sgg_name: 시군구명 (예: "강남구"). 빈 문자열이면 서울 전체.
+            road_nm_cd: 12자리 도로명코드
+            from_ym: 조회 시작 연월 (YYYYMM)
+            to_ym: 조회 종료 연월 (YYYYMM, 시작과 3개월 이내)
 
         Returns:
-            columns: [시도명, 시군구명, 도로명, 총인구수, 세대수, 세대당인구, 남자인구수, 여자인구수, 남녀비율]
+            columns: [시도명, 시군구명, 도로명, 총인구수, 세대수, 세대당인구, ...]
         """
         url = "https://apis.data.go.kr/1741000/rnPpltnHhStus/selectRnPpltnHhStus"
         all_rows = []
         page = 1
-        page_size = 1000
+        page_size = 100
 
         while True:
             params = {
                 "type": "json",
                 "numOfRows": page_size,
                 "pageNo": page,
-                "ctpvNm": "서울특별시",
+                "roadNmCd": road_nm_cd,
+                "srchFrYm": from_ym,
+                "srchToYm": to_ym,
             }
-            if sgg_name:
-                params["sggNm"] = sgg_name
 
             data = self._get(url, params)
             if data is None:
                 break
 
-            # 응답 파싱
-            body = data.get("response", data)
-            if isinstance(body, dict):
-                body = body.get("body", body)
+            # 응답 파싱 — Response.head / Response.items
+            resp = data.get("Response", data.get("response", data))
+            head = resp.get("head", {})
+            result_msg = head.get("resultMsg", "")
+            if result_msg not in ("NORMAL_SERVICE",):
+                if result_msg != "NO_DATA":
+                    logger.warning("API 에러: %s (code=%s)", result_msg, road_nm_cd)
+                break
 
-            items = body.get("items", [])
-            if isinstance(items, dict):
-                items = items.get("item", [])
+            items_wrap = resp.get("items", resp.get("body", {}).get("items", {}))
+            items = items_wrap.get("item", []) if isinstance(items_wrap, dict) else items_wrap
             if isinstance(items, dict):
                 items = [items]
 
@@ -89,11 +116,10 @@ class HouseholdCollector:
                 break
 
             all_rows.extend(items)
-            total = int(body.get("totalCount", 0))
+            total = int(head.get("totalCount", 0))
             if page * page_size >= total:
                 break
             page += 1
-            logger.info("세대현황 %s: %d/%d건", sgg_name or "전체", len(all_rows), total)
 
         if not all_rows:
             return pd.DataFrame()
@@ -101,16 +127,27 @@ class HouseholdCollector:
         df = pd.DataFrame(all_rows)
         return self._standardize_household(df)
 
-    def collect_all_seoul_households(self) -> pd.DataFrame:
-        """서울 25개 구 전체 세대현황 수집."""
-        gu_names = list(settings.seoul_gu_names.values())
+    def collect_all_seoul_households(
+        self,
+        from_ym: str = "202501",
+        to_ym: str = "202503",
+    ) -> pd.DataFrame:
+        """서울 주요 구의 도로명 세대현황 수집.
+
+        Args:
+            from_ym: 조회 시작 연월
+            to_ym: 조회 종료 연월
+        """
         frames = []
-        for gu in gu_names:
-            logger.info("=== %s 세대현황 수집 ===", gu)
-            df = self.collect_registered_households(sgg_name=gu)
-            if not df.empty:
-                frames.append(df)
-                logger.info("%s: %d건", gu, len(df))
+        for gu_code, road_codes in self.SEOUL_GU_ROAD_CODES.items():
+            gu_name = settings.seoul_gu_names.get(gu_code, gu_code)
+            for road_cd in road_codes:
+                logger.info("=== %s (도로코드: %s) 세대현황 수집 ===", gu_name, road_cd)
+                df = self.collect_registered_households(road_cd, from_ym, to_ym)
+                if not df.empty:
+                    frames.append(df)
+                    logger.info("%s: %d건", gu_name, len(df))
+
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
     def _standardize_household(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -118,13 +155,15 @@ class HouseholdCollector:
         rename_map = {
             "ctpvNm": "시도명",
             "sggNm": "시군구명",
-            "rdNm": "도로명",
-            "totPpltn": "총인구수",
+            "roadNm": "도로명",
+            "roadNmCd": "도로명코드",
+            "totNmprCnt": "총인구수",
             "hhCnt": "세대수",
-            "ppltnPerHh": "세대당인구",
-            "malePpltn": "남자인구수",
-            "femalePpltn": "여자인구수",
-            "maleFemaleRatio": "남녀비율",
+            "hhNmpr": "세대당인구",
+            "maleNmprCnt": "남자인구수",
+            "femlNmprCnt": "여자인구수",
+            "maleFemlRate": "남녀비율",
+            "statsYm": "기준연월",
         }
         rename = {k: v for k, v in rename_map.items() if k in df.columns}
         df = df.rename(columns=rename)

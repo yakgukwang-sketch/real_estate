@@ -17,16 +17,18 @@
 
 ---
 
-## 진행 중: API 활성화 대기
+## API 활성화 확인 완료
 
-- [ ] **행안부 도로명별 주민등록 세대현황 API** — 승인됨, 활성화 대기 (403)
-  - 활성화 후: `python scripts/collect_all.py --target household`
-  - 데이터: 시군구별 도로명 단위 세대수, 총인구수, 세대당인구
+- [x] **행안부 도로명별 주민등록 세대현황 API** — 동작 확인 완료
+  - 실행: `python scripts/collect_all.py --target household`
+  - 필수 파라미터: `roadNmCd`(12자리 도로명코드), `srchFrYm`, `srchToYm` (3개월 이내)
+  - 데이터: 도로명 단위 세대수, 총인구수, 세대당인구 (강남구 2,421건 확인)
 
-- [ ] **국토부 공동주택 기본정보 API** — 승인됨, 활성화 대기 (403)
-  - 활성화 후: `python scripts/collect_all.py --target apt-household`
-  - 데이터: 아파트 단지별 세대수, 동수, 전용면적, 시공사
-  - 참고: 단지 목록 API 별도 승인 필요할 수 있음
+- [x] **국토부 공동주택 기본정보 API** — 동작 확인 완료
+  - 실행: `python scripts/collect_all.py --target apt-household`
+  - 필수 파라미터: `kaptCode`(단지코드)
+  - 데이터: 아파트 단지별 세대수, 동수, 전용면적, 시공사, 법정동코드
+  - 참고: 단지코드 목록 API(AptListServiceV4) 별도 승인 필요
 
 - [x] **청약홈 분양정보 API** — 동작 확인 완료
   - 실행: `python scripts/collect_all.py --target subscription`
