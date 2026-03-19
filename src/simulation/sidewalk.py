@@ -1,14 +1,37 @@
-"""인도(보도) 네트워크 — 에이전트가 다닐 수 있는 길.
+"""인도(보도) 네트워크 — 서울시 공공데이터 기반.
 
-노드 = 교차점, 횡단보도, 건물 입구
-엣지 = 인도 구간
-에이전트는 이 네트워크 위에서만 이동 가능.
+데이터 출처: 서울 열린데이터광장
+- OA-21208: 자치구별 도보 네트워크 공간정보 (강남구 29,134건)
+- OA-21209: 대로변 횡단보도 위치정보 (강남구 31,080건)
+- 지하철역 좌표: subwayStationMaster API
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+import re
+import math
+from dataclasses import dataclass
+from pathlib import Path
 import heapq
+
+
+WALK_SPEED = 1.2  # m/s (보행 속도, 약 4.3km/h)
+APT_LAT, APT_LON = 37.4945, 127.0625
+RADIUS = 0.008  # 약 800m
+
+DATA_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "raw" / "walk_network_gangnam.json"
+CROSSWALK_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "raw" / "crosswalk_gangnam.json"
+
+# 래미안 대치팰리스 주변 지하철역 좌표 (subwayStationMaster API)
+SUBWAY_STATIONS = {
+    "대치역":    (37.494612, 127.063642),   # 3호선
+    "한티역":    (37.496237, 127.052873),   # 분당선
+    "학여울역":  (37.496663, 127.070594),   # 3호선
+    "도곡역":    (37.490922, 127.055452),   # 3호선
+    "매봉역":    (37.486947, 127.046769),   # 3호선
+    "선릉역":    (37.504286, 127.048203),   # 2호선
+}
 
 
 @dataclass
@@ -17,14 +40,14 @@ class Node:
     lat: float
     lon: float
     label: str = ""
-    is_crosswalk: bool = False  # 횡단보도 지점
+    is_crosswalk: bool = False
 
 
 @dataclass
 class Edge:
     from_id: str
     to_id: str
-    walk_sec: float = 30.0  # 이 구간 도보 시간 (초)
+    walk_sec: float = 30.0
 
 
 class SidewalkNetwork:
@@ -32,7 +55,7 @@ class SidewalkNetwork:
 
     def __init__(self):
         self.nodes: dict[str, Node] = {}
-        self.edges: dict[str, list[Edge]] = {}  # from_id → [Edge]
+        self.edges: dict[str, list[Edge]] = {}
 
     def add_node(self, node: Node):
         self.nodes[node.id] = node
@@ -63,7 +86,6 @@ class SidewalkNetwork:
                     prev[edge.to_id] = nid
                     heapq.heappush(heap, (nd, edge.to_id))
 
-        # 경로 역추적
         if end_id not in prev and start_id != end_id:
             return []
         path = []
@@ -74,11 +96,9 @@ class SidewalkNetwork:
         return list(reversed(path))
 
     def path_to_coords(self, path: list[str]) -> list[tuple[float, float]]:
-        """노드 ID 경로 → 좌표 리스트."""
         return [(self.nodes[nid].lat, self.nodes[nid].lon) for nid in path if nid in self.nodes]
 
     def path_walk_time(self, path: list[str]) -> float:
-        """경로 총 도보 시간 (초)."""
         total = 0.0
         for i in range(len(path) - 1):
             for edge in self.edges.get(path[i], []):
@@ -87,8 +107,21 @@ class SidewalkNetwork:
                     break
         return total
 
+    def nearest_node(self, lat: float, lon: float, exclude: set[str] | None = None) -> str | None:
+        """좌표에서 가장 가까운 노드 ID."""
+        best_id = None
+        best_dist = float('inf')
+        skip = exclude or set()
+        for nid, node in self.nodes.items():
+            if nid in skip:
+                continue
+            d = (node.lat - lat) ** 2 + (node.lon - lon) ** 2
+            if d < best_dist:
+                best_dist = d
+                best_id = nid
+        return best_id
+
     def to_geojson_edges(self) -> list[dict]:
-        """엣지를 GeoJSON LineString으로 변환 (시각화용)."""
         seen = set()
         features = []
         for from_id, edges in self.edges.items():
@@ -97,8 +130,10 @@ class SidewalkNetwork:
                 if key in seen:
                     continue
                 seen.add(key)
-                n1 = self.nodes[e.from_id]
-                n2 = self.nodes[e.to_id]
+                n1 = self.nodes.get(e.from_id)
+                n2 = self.nodes.get(e.to_id)
+                if not n1 or not n2:
+                    continue
                 features.append({
                     "from": e.from_id, "to": e.to_id,
                     "coords": [[n1.lat, n1.lon], [n2.lat, n2.lon]],
@@ -108,116 +143,196 @@ class SidewalkNetwork:
         return features
 
 
-def build_daechi_network() -> SidewalkNetwork:
-    """래미안 대치팰리스 주변 인도 네트워크 구축.
+def _parse_point(wkt: str) -> tuple[float, float] | None:
+    """POINT(lon lat) → (lat, lon)"""
+    m = re.match(r'POINT\(([\d.]+)\s+([\d.]+)\)', wkt)
+    if m:
+        return float(m.group(2)), float(m.group(1))
+    return None
 
-    도곡로 = 동서 방향 대로 (북측 인도 / 남측 인도)
-    남북 골목 = 도곡로에서 갈라지는 길
-    횡단보도 = 북측↔남측 연결 지점
-    """
+
+def _parse_linestring(wkt: str) -> list[tuple[float, float]]:
+    """LINESTRING(lon lat, lon lat, ...) → [(lat, lon), ...]"""
+    m = re.match(r'LINESTRING\((.+)\)', wkt)
+    if not m:
+        return []
+    coords = []
+    for pair in m.group(1).split(","):
+        parts = pair.strip().split()
+        if len(parts) == 2:
+            coords.append((float(parts[1]), float(parts[0])))
+    return coords
+
+
+def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """두 좌표 사이 거리 (미터, 간이 계산)."""
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def build_daechi_network() -> SidewalkNetwork:
+    """서울시 공공데이터에서 래미안 대치팰리스 주변 인도 네트워크 구축."""
     net = SidewalkNetwork()
 
-    # === 노드 정의 ===
+    with open(DATA_PATH, encoding="utf-8") as f:
+        rows = json.load(f)
 
-    # 아파트 출입구
-    net.add_node(Node("apt", 37.4945, 127.0625, "래미안 대치팰리스 정문"))
+    # --- 1) 모든 노드 파싱 (좌표 인덱스 구축) ---
+    all_node_info: dict[int, dict] = {}
+    for r in rows:
+        if r["NODE_TYPE"] != "NODE":
+            continue
+        pt = _parse_point(r.get("NODE_WKT", ""))
+        if not pt:
+            continue
+        nid = int(r["NODE_ID"])
+        is_cx = str(r.get("CRSWK", "0")) == "1"
+        all_node_info[nid] = {"lat": pt[0], "lon": pt[1], "is_crosswalk": is_cx}
 
-    # 도곡로 북측 인도 (서→동)
-    net.add_node(Node("n_w3", 37.4940, 127.0555, "도곡로북 서쪽끝"))
-    net.add_node(Node("n_w2", 37.4940, 127.0570, "도곡로북"))
-    net.add_node(Node("n_w1", 37.4940, 127.0590, "도곡로북"))
-    net.add_node(Node("n_cx1", 37.4940, 127.0610, "도곡로북 횡단보도1", is_crosswalk=True))
-    net.add_node(Node("n_apt", 37.4940, 127.0625, "도곡로북 아파트앞"))
-    net.add_node(Node("n_cx2", 37.4940, 127.0645, "도곡로북 횡단보도2", is_crosswalk=True))
-    net.add_node(Node("n_e1", 37.4940, 127.0660, "도곡로북"))
-    net.add_node(Node("n_e2", 37.4940, 127.0675, "도곡로북 동쪽끝"))
+    # --- 2) 모든 링크를 엣지로 등록 (강남구 전체) ---
+    all_links = [r for r in rows if r["NODE_TYPE"] == "LINK"]
+    used_nodes: dict[int, dict] = {}
 
-    # 도곡로 남측 인도 (서→동)
-    net.add_node(Node("s_w3", 37.4935, 127.0555, "도곡로남 서쪽끝"))
-    net.add_node(Node("s_w2", 37.4935, 127.0570, "도곡로남"))
-    net.add_node(Node("s_w1", 37.4935, 127.0590, "도곡로남"))
-    net.add_node(Node("s_cx1", 37.4935, 127.0610, "도곡로남 횡단보도1", is_crosswalk=True))
-    net.add_node(Node("s_apt", 37.4935, 127.0625, "도곡로남 아파트맞은편"))
-    net.add_node(Node("s_cx2", 37.4935, 127.0645, "도곡로남 횡단보도2", is_crosswalk=True))
-    net.add_node(Node("s_e1", 37.4935, 127.0660, "도곡로남"))
-    net.add_node(Node("s_e2", 37.4935, 127.0675, "도곡로남 동쪽끝"))
+    for r in all_links:
+        bgn = int(r["BGNG_LNKG_ID"])
+        end = int(r["END_LNKG_ID"])
 
-    # 상권 목적지 노드
-    net.add_node(Node("zone_front", 37.4940, 127.0640, "단지 앞 도곡로 상가"))
-    net.add_node(Node("zone_cross", 37.4930, 127.0610, "도곡로 건너편 상가"))
-    net.add_node(Node("zone_daechi", 37.4945, 127.0555, "대치역 상권"))
-    net.add_node(Node("zone_hanti", 37.4980, 127.0675, "한티역 상권"))
-    net.add_node(Node("zone_academy", 37.4915, 127.0645, "학원가 뒷길"))
+        coords = _parse_linestring(r.get("LNKG_WKT", ""))
+        if not coords:
+            continue
 
-    # 북쪽 골목 (한티역 방향)
-    net.add_node(Node("north1", 37.4950, 127.0675, "북쪽골목1"))
-    net.add_node(Node("north2", 37.4960, 127.0675, "북쪽골목2"))
-    net.add_node(Node("north3", 37.4970, 127.0675, "북쪽골목3"))
+        is_cx = str(r.get("CRSWK", "0")) == "1"
+        lnkg_type = r.get("LNKG_TYPE_CD", "")
+        length_m = float(r.get("LNKG_LEN", 0) or 0)
 
-    # 남쪽 골목 (학원가 방향)
-    net.add_node(Node("south1", 37.4930, 127.0645, "남쪽골목1"))
-    net.add_node(Node("south2", 37.4922, 127.0645, "남쪽골목2"))
+        if bgn in all_node_info:
+            used_nodes[bgn] = all_node_info[bgn]
+        elif bgn not in used_nodes:
+            used_nodes[bgn] = {"lat": coords[0][0], "lon": coords[0][1], "is_crosswalk": is_cx}
+        if end in all_node_info:
+            used_nodes[end] = all_node_info[end]
+        elif end not in used_nodes:
+            used_nodes[end] = {"lat": coords[-1][0], "lon": coords[-1][1], "is_crosswalk": is_cx}
 
-    # 대치역 방향 북쪽 진입
-    net.add_node(Node("daechi_s", 37.4940, 127.0555, "대치역남쪽"))
+        walk_sec = length_m / WALK_SPEED if length_m > 0 else 10.0
+        if lnkg_type == "1011":  # 횡단보도 링크
+            walk_sec += 30.0  # 신호 대기 평균 30초
 
-    # === 엣지 정의 ===
+        net.add_edge(str(bgn), str(end), walk_sec=round(walk_sec, 1))
 
-    # 아파트 → 도곡로 북측 (단지에서 도로까지)
-    net.add_edge("apt", "n_apt", walk_sec=40)
+    all_nodes = used_nodes
 
-    # 도곡로 북측 인도 (동서 연결)
-    net.add_edge("n_w3", "n_w2", walk_sec=30)
-    net.add_edge("n_w2", "n_w1", walk_sec=30)
-    net.add_edge("n_w1", "n_cx1", walk_sec=30)
-    net.add_edge("n_cx1", "n_apt", walk_sec=25)
-    net.add_edge("n_apt", "n_cx2", walk_sec=30)
-    net.add_edge("n_cx2", "n_e1", walk_sec=25)
-    net.add_edge("n_e1", "n_e2", walk_sec=25)
+    # --- 3) 노드 등록 ---
+    for nid, info in all_nodes.items():
+        net.add_node(Node(
+            id=str(nid),
+            lat=info["lat"],
+            lon=info["lon"],
+            is_crosswalk=info["is_crosswalk"],
+        ))
 
-    # 도곡로 남측 인도 (동서 연결)
-    net.add_edge("s_w3", "s_w2", walk_sec=30)
-    net.add_edge("s_w2", "s_w1", walk_sec=30)
-    net.add_edge("s_w1", "s_cx1", walk_sec=30)
-    net.add_edge("s_cx1", "s_apt", walk_sec=25)
-    net.add_edge("s_apt", "s_cx2", walk_sec=30)
-    net.add_edge("s_cx2", "s_e1", walk_sec=25)
-    net.add_edge("s_e1", "s_e2", walk_sec=25)
+    # --- 4) 횡단보도 전용 데이터 합치기 (OA-21209) ---
+    if CROSSWALK_PATH.exists():
+        with open(CROSSWALK_PATH, encoding="utf-8") as f:
+            cx_rows = json.load(f)
 
-    # 횡단보도 (북↔남 연결, 횡단보도 위치에서만 건넘)
-    net.add_edge("n_cx1", "s_cx1", walk_sec=20)  # 횡단보도1
-    net.add_edge("n_cx2", "s_cx2", walk_sec=20)  # 횡단보도2
+        # 횡단보도 노드 추가
+        for r in cx_rows:
+            if r["NODE_TYPE"] != "NODE":
+                continue
+            pt = _parse_point(r.get("NODE_WKT", ""))
+            if not pt:
+                continue
+            nid = int(r["NODE_ID"])
+            if nid not in all_nodes:
+                all_nodes[nid] = {"lat": pt[0], "lon": pt[1], "is_crosswalk": True}
+                net.add_node(Node(str(nid), pt[0], pt[1], is_crosswalk=True))
 
-    # 상권 연결
-    # 단지 앞 상가: 도곡로 북측 횡단보도2 근처
-    net.add_edge("n_cx2", "zone_front", walk_sec=15)
+        # 횡단보도 링크 추가 (도로 횡단 연결)
+        for r in cx_rows:
+            if r["NODE_TYPE"] != "LINK":
+                continue
+            bgn = int(r["BGNG_LNKG_ID"])
+            end = int(r["END_LNKG_ID"])
+            coords = _parse_linestring(r.get("LNKG_WKT", ""))
+            if not coords:
+                continue
 
-    # 건너편 상가: 남측 횡단보도1에서 남쪽 골목으로
-    net.add_edge("s_cx1", "zone_cross", walk_sec=25)
+            length_m = float(r.get("LNKG_LEN", 0) or 0)
 
-    # 대치역: 도곡로 북측 서쪽 끝 → 대치역
-    net.add_edge("n_w3", "daechi_s", walk_sec=10)
-    net.add_edge("daechi_s", "zone_daechi", walk_sec=20)
+            # 노드가 없으면 LINESTRING 끝점에서 생성
+            if bgn not in all_nodes:
+                all_nodes[bgn] = {"lat": coords[0][0], "lon": coords[0][1], "is_crosswalk": True}
+                net.add_node(Node(str(bgn), coords[0][0], coords[0][1], is_crosswalk=True))
+            if end not in all_nodes:
+                all_nodes[end] = {"lat": coords[-1][0], "lon": coords[-1][1], "is_crosswalk": True}
+                net.add_node(Node(str(end), coords[-1][0], coords[-1][1], is_crosswalk=True))
 
-    # 한티역: 도곡로 북측 동쪽 끝 → 북쪽 골목 → 한티역
-    net.add_edge("n_e2", "north1", walk_sec=25)
-    net.add_edge("north1", "north2", walk_sec=25)
-    net.add_edge("north2", "north3", walk_sec=25)
-    net.add_edge("north3", "zone_hanti", walk_sec=25)
+            # 횡단보도 = 도보시간 + 신호대기
+            walk_sec = length_m / WALK_SPEED if length_m > 0 else 10.0
+            walk_sec += 30.0  # 신호 대기
+            net.add_edge(str(bgn), str(end), walk_sec=round(walk_sec, 1))
 
-    # 학원가: 남측 횡단보도2에서 남쪽 골목 → 학원가
-    net.add_edge("s_cx2", "south1", walk_sec=20)
-    net.add_edge("south1", "south2", walk_sec=25)
-    net.add_edge("south2", "zone_academy", walk_sec=25)
+    # --- 5) 단절된 컴포넌트 자동 연결 (30m 이내 노드끼리) ---
+    # 래미안 근처 노드만 대상 (성능)
+    nearby_nids = [
+        nid for nid, node in net.nodes.items()
+        if abs(node.lat - APT_LAT) <= RADIUS and abs(node.lon - APT_LON) <= RADIUS
+    ]
+
+    # BFS로 컴포넌트 찾기 (근처 노드만)
+    nearby_set = set(nearby_nids)
+    remaining = set(nearby_nids)
+    components: list[set[str]] = []
+    while remaining:
+        start = remaining.pop()
+        comp = {start}
+        q = [start]
+        while q:
+            n = q.pop(0)
+            for e in net.edges.get(n, []):
+                if e.to_id in remaining:
+                    remaining.discard(e.to_id)
+                    comp.add(e.to_id)
+                    q.append(e.to_id)
+        components.append(comp)
+
+    # 컴포넌트 간 30m 이내 노드 쌍을 찾아 연결
+    BRIDGE_DIST = 30.0
+    for i in range(len(components)):
+        for j in range(i + 1, len(components)):
+            best_d = float('inf')
+            best_pair = None
+            for a in components[i]:
+                na = net.nodes[a]
+                for b in components[j]:
+                    nb = net.nodes[b]
+                    d = _distance_m(na.lat, na.lon, nb.lat, nb.lon)
+                    if d < best_d:
+                        best_d = d
+                        best_pair = (a, b)
+            if best_pair and best_d <= BRIDGE_DIST:
+                walk_sec = round(best_d / WALK_SPEED, 1)
+                net.add_edge(best_pair[0], best_pair[1], walk_sec=max(walk_sec, 5.0))
+
+    # --- 6) 지하철역 노드 추가 & 가장 가까운 도로 노드에 연결 ---
+    special_ids = set()
+    for stn_name, (slat, slon) in SUBWAY_STATIONS.items():
+        stn_id = f"subway_{stn_name}"
+        special_ids.add(stn_id)
+        net.add_node(Node(stn_id, slat, slon, stn_name))
+        nearest = net.nearest_node(slat, slon, exclude=special_ids | {"apt"})
+        if nearest:
+            d = _distance_m(slat, slon, net.nodes[nearest].lat, net.nodes[nearest].lon)
+            net.add_edge(stn_id, nearest, walk_sec=round(d / WALK_SPEED, 1))
+
+    # --- 7) 아파트 정문 노드 추가 & 가장 가까운 도로 노드에 연결 ---
+    net.add_node(Node("apt", APT_LAT, APT_LON, "래미안 대치팰리스 정문"))
+    nearest = net.nearest_node(APT_LAT, APT_LON, exclude=special_ids | {"apt"})
+    if nearest:
+        d = _distance_m(APT_LAT, APT_LON, net.nodes[nearest].lat, net.nodes[nearest].lon)
+        net.add_edge("apt", nearest, walk_sec=round(d / WALK_SPEED, 1))
 
     return net
-
-
-# 상권 구역 → 네트워크 노드 매핑
-ZONE_TO_NODE = {
-    "단지 앞 도곡로": "zone_front",
-    "도곡로 건너편": "zone_cross",
-    "대치역 상권": "zone_daechi",
-    "한티역 상권": "zone_hanti",
-    "학원가 뒷길": "zone_academy",
-}
