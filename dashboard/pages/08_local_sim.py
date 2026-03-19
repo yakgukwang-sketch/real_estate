@@ -9,7 +9,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 
-from src.simulation.local_agent import simulate, agents_to_df, APT_COORDS, NETWORK
+from src.simulation.local_agent import simulate, agents_to_df, spending_summary, APT_COORDS, NETWORK
 
 st.set_page_config(layout="wide")
 st.header("래미안 대치팰리스 — 주민 이동 시뮬레이션")
@@ -23,22 +23,29 @@ agents = simulate(n_agents=n_agents, seed=int(seed))
 df = agents_to_df(agents)
 
 went_out = df["agent_id"].nunique() if not df.empty else 0
+summary = spending_summary(df) if not df.empty else {}
 
-m1, m2, m3 = st.columns(3)
+m1, m2, m3, m4 = st.columns(4)
 m1.metric("총 인원", f"{n_agents}명")
 m2.metric("외출자", f"{went_out}명")
 m3.metric("이동 횟수", f"{len(df)}회")
+m4.metric("총 소비", f"{summary.get('총소비', 0):,}원")
 
 st.divider()
 
 TYPE_COLORS = {
-    "음식점":     "#ef4444",   # 빨강
-    "학원":       "#3b82f6",   # 파랑
-    "상점":       "#f59e0b",   # 주황
-    "병원/약국":  "#22c55e",   # 초록
-    "생활서비스":  "#8b5cf6",   # 보라
-    "대형상가":   "#ec4899",   # 핑크
-    "기타":       "#94a3b8",   # 회색
+    "음식점":       "#ef4444",   # 빨강
+    "학원":         "#3b82f6",   # 파랑
+    "학교":         "#1d4ed8",   # 진파랑
+    "상점":         "#f59e0b",   # 주황
+    "병원/약국":    "#22c55e",   # 초록
+    "생활서비스":    "#8b5cf6",   # 보라
+    "어린이집/복지": "#a855f7",   # 연보라
+    "종교시설":     "#14b8a6",   # 청록
+    "운동시설":     "#06b6d4",   # 하늘
+    "문화시설":     "#e11d48",   # 자홍
+    "대형상가":     "#ec4899",   # 핑크
+    "기타":         "#94a3b8",   # 회색
 }
 
 # 인도 네트워크 엣지 — 래미안 근처만
@@ -276,41 +283,83 @@ with col_map:
     components.html(html, height=690)
 
 with col_detail:
-    st.markdown("**외출 동기별**")
-    if not df.empty and "동기" in df.columns:
-        ms = df.groupby("동기").agg(
-            건수=("agent_id", "count"),
-        ).sort_values("건수", ascending=False).reset_index()
-        st.dataframe(ms, use_container_width=True, hide_index=True)
+    tab_mot, tab_profile, tab_spend, tab_agent = st.tabs(["동기별", "프로파일", "소비", "에이전트"])
 
-    st.markdown("**도보 시간 분포**")
-    if not df.empty:
-        bins = {"~3분": 0, "3~5분": 0, "5~10분": 0, "10~15분": 0, "15분+": 0}
-        for _, row in df.iterrows():
-            m = row["도보(분)"]
-            if m <= 3: bins["~3분"] += 1
-            elif m <= 5: bins["3~5분"] += 1
-            elif m <= 10: bins["5~10분"] += 1
-            elif m <= 15: bins["10~15분"] += 1
-            else: bins["15분+"] += 1
-        dist_df = pd.DataFrame({"거리구간": bins.keys(), "건수": bins.values()})
-        st.dataframe(dist_df, use_container_width=True, hide_index=True)
+    with tab_mot:
+        if not df.empty and "동기" in df.columns:
+            ms = df.groupby("동기").agg(
+                건수=("agent_id", "count"),
+            ).sort_values("건수", ascending=False).reset_index()
+            st.dataframe(ms, use_container_width=True, hide_index=True)
 
-    st.divider()
-    st.markdown("**에이전트 추적**")
-    went_out_agents = [a for a in agents if a.log]
-    if went_out_agents:
-        pick = st.selectbox(
-            "에이전트 선택",
-            range(len(went_out_agents)),
-            format_func=lambda i: f"#{went_out_agents[i].id} ({len(went_out_agents[i].log)}회 외출)",
-        )
-        agent = went_out_agents[pick]
-        for j, log in enumerate(agent.log, 1):
-            mot = log.get("motivation", "")
-            cross_txt = f"횡단보도 {log['crossings']}번" if log['crossings'] > 0 else "횡단보도 없음"
-            st.write(
-                f"**{j}. {mot}** — 도보 {log['walk_min']}분, {cross_txt}"
+        st.markdown("**도보 시간 분포**")
+        if not df.empty:
+            bins = {"~3분": 0, "3~5분": 0, "5~10분": 0, "10~15분": 0, "15분+": 0}
+            for _, row in df.iterrows():
+                m = row["도보(분)"]
+                if m <= 3: bins["~3분"] += 1
+                elif m <= 5: bins["3~5분"] += 1
+                elif m <= 10: bins["5~10분"] += 1
+                elif m <= 15: bins["10~15분"] += 1
+                else: bins["15분+"] += 1
+            dist_df = pd.DataFrame({"거리구간": bins.keys(), "건수": bins.values()})
+            st.dataframe(dist_df, use_container_width=True, hide_index=True)
+
+    with tab_profile:
+        if not df.empty and "유형" in df.columns:
+            st.markdown("**프로파일별 이동**")
+            ps = df.groupby("유형").agg(
+                인원=("agent_id", "nunique"),
+                이동=("agent_id", "count"),
+                연쇄=("연쇄", "sum"),
+            ).sort_values("이동", ascending=False).reset_index()
+            st.dataframe(ps, use_container_width=True, hide_index=True)
+
+            st.markdown("**시간대별 이동**")
+            ts = df.groupby("시간대").agg(
+                건수=("agent_id", "count"),
+            ).reset_index()
+            st.dataframe(ts, use_container_width=True, hide_index=True)
+
+    with tab_spend:
+        if summary:
+            st.metric("건당 평균 소비", f"{summary.get('건당평균', 0):,}원")
+            st.metric("연쇄 이동", f"{summary.get('연쇄이동', 0)}건")
+
+            st.markdown("**프로파일별 소비**")
+            if "프로파일별소비" in summary:
+                sp_df = pd.DataFrame([
+                    {"프로파일": k, "소비(원)": v}
+                    for k, v in summary["프로파일별소비"].items()
+                ])
+                st.dataframe(sp_df, use_container_width=True, hide_index=True)
+
+            st.markdown("**시간대별 소비**")
+            if "시간대별소비" in summary:
+                st_df = pd.DataFrame([
+                    {"시간대": k, "소비(원)": v}
+                    for k, v in summary["시간대별소비"].items()
+                ])
+                st.dataframe(st_df, use_container_width=True, hide_index=True)
+
+    with tab_agent:
+        went_out_agents = [a for a in agents if a.log]
+        if went_out_agents:
+            pick = st.selectbox(
+                "에이전트 선택",
+                range(len(went_out_agents)),
+                format_func=lambda i: f"#{went_out_agents[i].id} [{went_out_agents[i].profile}] ({len(went_out_agents[i].log)}회)",
             )
-    else:
-        st.info("외출한 에이전트가 없습니다.")
+            agent = went_out_agents[pick]
+            for j, log in enumerate(agent.log, 1):
+                mot = log.get("motivation", "")
+                time_str = log.get("time", "")
+                spend = log.get("spend", 0)
+                chain = " 🔗" if log.get("is_chain") else ""
+                cross_txt = f"횡단{log['crossings']}번" if log['crossings'] > 0 else ""
+                spend_txt = f" · {spend:,}원" if spend > 0 else ""
+                st.write(
+                    f"**{j}. [{time_str}] {mot}{chain}** — {log['walk_min']}분 {cross_txt}{spend_txt}"
+                )
+        else:
+            st.info("외출한 에이전트가 없습니다.")

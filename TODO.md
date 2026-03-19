@@ -1,7 +1,60 @@
 # 프로젝트 다음 단계 (TODO)
 
-> 최종 업데이트: 2026-03-19
-> 현재 상태: master 브랜치, 래미안 대치팰리스 로컬 시뮬레이션 (실제 건물 목적지 기반)
+> 최종 업데이트: 2026-03-20
+> 현재 상태: master 브랜치, 래미안 대치팰리스 로컬 시뮬레이션 (건축물대장+상가 통합 건물 데이터)
+
+---
+
+## 2026-03-20 작업 내역
+
+### 건물 데이터 보강
+- [x] 건축물대장 API 승인 (국토교통부_건축HUB_건축물대장정보, ~2028-03-20)
+- [x] 건축물대장 수집기 `src/collectors/building_collector.py` 구현
+- [x] 상가정보 수집기 `src/collectors/commercial_collector.py` 구현 (반경 검색 포함)
+- [x] 대치동 상가 3,987건 + 건축물대장 1,736건 수집
+- [x] 비상업 시설 16개 geocoding (Nominatim) → `buildings_classified.json` 통합 (599개)
+- [x] 목적지 유형 확장: 학교, 어린이집/복지, 종교시설, 운동시설, 문화시설 추가
+- [x] 에이전트 동기 업데이트: "등원/등교", "산책/운동", "종교 활동" 추가
+
+### 보행 네트워크 수집
+- [x] 서울 OA-21208/21209 → ERROR-500, 대체 엔드포인트 발견
+- [x] **도보 네트워크** `TbTraficWlkNet` 강남구 29,134건 수집 (12,654노드/16,480링크)
+- [x] **횡단보도** `tbTraficCrsng` 강남구 2,062건 수집 (1,306노드/756링크)
+- [x] 시뮬레이션 연동 확인: 11,366노드, 횡단보도 1,121개, 목적지 487개
+
+### 인프라 정비
+- [x] `src/utils/api_client.py`, `src/utils/cache.py` 복원
+- [x] `src/collectors/base_collector.py` 복원
+- [x] `.env`에 safemap API 키 추가
+- [x] `config/settings.py`에 건축물대장, 상가 반경, safemap 엔드포인트 추가
+
+### API 키 발급
+- [x] 생활안전지도 API 키 발급 (`7M1YBFTM-...`)
+  - 인도(IF_0095), 횡단보도(IF_0097) — 좌표 데이터 미포함 (속성만)
+
+### 신규/수정 파일 목록
+
+**코드:**
+| 파일 | 상태 | 설명 |
+|------|------|------|
+| `src/collectors/building_collector.py` | 신규 | 건축물대장 표제부 수집기 |
+| `src/collectors/commercial_collector.py` | 신규 | 상가정보 수집기 (반경 검색) |
+| `src/collectors/base_collector.py` | 복원 | 공통 수집기 베이스 |
+| `src/utils/api_client.py` | 복원 | HTTP 클라이언트 |
+| `src/utils/cache.py` | 복원 | SQLite 캐시 |
+| `src/simulation/local_agent.py` | 수정 | 비상업 시설 유형 + 동기 추가 |
+| `config/settings.py` | 수정 | 건축물대장/safemap 엔드포인트 |
+| `.env` | 수정 | safemap API 키 추가 |
+
+**데이터 (`data/raw/`, gitignored):**
+| 파일 | 건수 | 출처 |
+|------|------|------|
+| `walk_network_gangnam.json` | 29,134 | TbTraficWlkNet (강남구) |
+| `crosswalk_gangnam.json` | 2,062 | tbTraficCrsng (강남구) |
+| `stores_daechi_1km.json` | 3,987 | storeListInRadius |
+| `buildings_classified.json` | 599 | 상가+건축물대장 통합 |
+| `building_registry_daechi.json` | 1,736 | 건축물대장 표제부 (대치동) |
+| `non_commercial_geocoded.json` | 59 | Nominatim geocoding |
 
 ---
 
@@ -91,25 +144,36 @@
 
 ## 다음 단계
 
-### 1. 건물 데이터 보강 (우선순위: 높음)
+### 1. 건물 데이터 보강 (우선순위: 높음) — ✅ 완료 (2026-03-20)
 
-- [ ] **V-World 건축물 API 안정화** — `domain` 파라미터 이슈 해결 후 건물 폴리곤 다운로드
-- [ ] **건축물대장 API 신청** — data.go.kr `국토교통부_건축물대장정보 서비스` 활용신청
-  - 건물 용도(주거/상업/업무), 연면적, 층수 등 정밀 데이터
-- [ ] 비상업 시설 추가 — 학교, 공원, 관공서 등 (현재 상권 API 기반이라 상업시설만 있음)
+- [x] **건축물대장 API 승인 및 수집기 구현** — `src/collectors/building_collector.py`
+  - 대치동 1,736건 수집 (`data/raw/building_registry_daechi.json`)
+  - 건물 용도(주거/상업/교육/노유자/종교 등), 연면적, 층수 정밀 데이터
+- [x] **상가정보 수집기 리팩토링** — `src/collectors/commercial_collector.py`
+  - 반경 검색(`collect_radius`) 지원 추가
+  - 대치동 반경 1km 상가 3,987건 수집 (`data/raw/stores_daechi_1km.json`)
+- [x] **비상업 시설 추가** — 건축물대장 기반 geocoding으로 16개 시설 통합
+  - 학교 9, 어린이집/복지 4, 종교시설 2, 문화시설 1
+  - `buildings_classified.json`: 583 → 599개 건물, 목적지 유형 6 → 10종
+- [x] **보행 네트워크 대체** — 서울 OA-21208/21209 API 장애로 OSM(OpenStreetMap) 활용
+  - osmnx로 800m 반경 보행 네트워크 수집 (628노드, 1,752링크)
+  - Overpass API로 횡단보도 82개 수집
+- [ ] V-World 건축물 API — 건물 폴리곤 필요 시 재시도 (현재 불필요)
 
-### 2. 시뮬레이션 고도화 (우선순위: 중간)
+### 2. 시뮬레이션 고도화 (우선순위: 중간) — ✅ 완료 (2026-03-20)
 
-- [ ] **에이전트 유형 분화** — 직장인/학생/은퇴자/맞벌이 등 프로파일별 행동 차별화
-- [ ] **시간대별 스케줄** — 출근(07~09), 점심(11~13), 퇴근(17~19) 등 시간 흐름 반영
-- [ ] **연쇄 이동 (trip chain)** — "학원→카페→마트" 같은 복합 이동
-- [ ] **소비 시뮬레이션 연동** — `local_spending.py`와 에이전트 이동 결합
+- [x] **에이전트 유형 분화** — 직장인(35%)/맞벌이(20%)/주부(15%)/학생(15%)/은퇴자(15%)
+- [x] **시간대별 스케줄** — 이른아침/오전/점심/오후/저녁/밤 6개 시간대
+- [x] **연쇄 이동 (trip chain)** — "학원→음식점", "운동→카페" 등 유형별 연쇄 규칙
+- [x] **소비 시뮬레이션 연동** — 이동별 소비 금액, 프로파일/시간대별 집계
+- [x] **대시보드 업데이트** — 탭 구조 (동기별/프로파일/소비/에이전트), 총소비 메트릭
 
-### 3. 프로젝트 정리 (우선순위: 중간)
+### 3. 프로젝트 정리 (우선순위: 중간) — ✅ 완료 (2026-03-20)
 
-- [ ] `_remove/` 폴더로 미사용 파일 이동 (plan 참조: `rosy-inventing-lerdorf.md`)
-- [ ] `dashboard/app.py`, `src/simulation/__init__.py` 정리
-- [ ] README.md 업데이트 (현재 상태 반영)
+- [x] `_remove/` 폴더로 미사용 파일 이동 완료 (이전 커밋에서)
+- [x] `dashboard/app.py` — 현재 상태 반영 (시뮬레이션 구성 설명)
+- [x] `dashboard/pages/08_local_sim.py` — v2 대시보드 (탭 UI, 소비 표시, 프로파일)
+- [x] README.md — 현재 프로젝트 구조/기능/데이터 소스 전면 재작성
 
 ### 4. 데이터 기간 확장 (우선순위: 낮음)
 

@@ -18,18 +18,27 @@ class Settings(BaseSettings):
 
     data_go_kr_api_key: str = ""
     seoul_open_api_key: str = ""
+    safemap_api_key: str = ""
 
     # data.go.kr 엔드포인트
     apt_trade_url: str = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
     villa_trade_url: str = "https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade"
     officetel_trade_url: str = "https://apis.data.go.kr/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade"
     commercial_url: str = "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInDong"
+    commercial_radius_url: str = "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInRadius"
+    building_registry_url: str = "https://apis.data.go.kr/1613000/BldRgstHubService"
 
     # data.seoul.go.kr 엔드포인트 (서울 열린데이터 광장)
     seoul_api_base: str = "http://openapi.seoul.go.kr:8088"
     subway_endpoint: str = "CardSubwayStatsNew"
     population_endpoint: str = "SPOP_LOCAL_RESD_DONG"
     spending_endpoint: str = "VwsmTrdarSelngQq"
+    walk_network_endpoint: str = "TbTraficWlkNet"
+    crosswalk_endpoint: str = "tbTraficCrsng"
+
+    # safemap.go.kr 엔드포인트 (생활안전지도)
+    safemap_sidewalk_url: str = "http://safemap.go.kr/openapi2/IF_0095"
+    safemap_crosswalk_url: str = "http://safemap.go.kr/openapi2/IF_0097"
 
     # 서울시 자치구 법정동코드 (앞 5자리)
     seoul_gu_codes: list[str] = [
