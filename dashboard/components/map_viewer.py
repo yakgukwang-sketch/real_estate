@@ -264,6 +264,164 @@ def create_flow_map(
     return m
 
 
+def create_spending_power_map(
+    summary_df: pd.DataFrame,
+    coord_map: dict[str, tuple[float, float]],
+) -> folium.Map:
+    """소비력 히트맵 - CircleMarker로 동별 소비력 시각화.
+
+    Args:
+        summary_df: columns=[동, 총세대수, 총인구, 총소비력, 주요주거유형, 1인당소비]
+        coord_map: 동 이름 → (lat, lon) 매핑
+    """
+    m = create_base_map(zoom=12)
+
+    if summary_df.empty:
+        return m
+
+    max_spend = summary_df["총소비력"].max()
+    type_colors = {
+        "아파트": "#3b82f6",
+        "빌라": "#f59e0b",
+        "오피스텔": "#8b5cf6",
+        "단독주택": "#10b981",
+    }
+
+    for _, row in summary_df.iterrows():
+        dong = row["동"]
+        coords = coord_map.get(dong)
+        if coords is None:
+            continue
+
+        # 크기: 소비력 비례 (8~30)
+        ratio = row["총소비력"] / max_spend if max_spend > 0 else 0
+        radius = 8 + ratio * 22
+
+        color = type_colors.get(row["주요주거유형"], "#999")
+
+        popup_html = (
+            f"<div style='font-size:13px;line-height:1.6'>"
+            f"<b style='font-size:15px'>{dong}</b>"
+            f"<hr style='margin:4px 0'>"
+            f"총세대수: <b>{row['총세대수']:,}</b><br>"
+            f"총인구: <b>{row['총인구']:,}</b>명<br>"
+            f"월 소비력: <b>{row['총소비력']:,.0f}</b>원<br>"
+            f"주요유형: <b>{row['주요주거유형']}</b><br>"
+            f"1인당소비: <b>{row['1인당소비']:,}</b>원"
+            f"</div>"
+        )
+
+        folium.CircleMarker(
+            location=[coords[0], coords[1]],
+            radius=radius,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.6,
+            popup=folium.Popup(popup_html, max_width=300),
+            tooltip=f"{dong}: {row['총소비력']:,.0f}원",
+        ).add_to(m)
+
+    return m
+
+
+def create_foot_traffic_map(
+    summary_df: pd.DataFrame,
+    coord_map: dict[str, tuple[float, float]],
+    selected_dong: str | None = None,
+    detail: dict | None = None,
+) -> folium.Map:
+    """유동인구→상권매출 지도.
+
+    Args:
+        summary_df: FootTrafficSimulator.get_summary() 결과
+        coord_map: 동 이름 → (lat, lon)
+        selected_dong: 선택된 동 (화살표 표시용)
+        detail: get_dong_detail() 결과 (selected_dong 지정 시 필요)
+    """
+    m = create_base_map(zoom=12)
+
+    if summary_df.empty:
+        return m
+
+    max_visitors = summary_df["총방문자수"].max() if not summary_df.empty else 1
+    max_revenue = summary_df["총매출"].max() if not summary_df.empty else 1
+
+    for _, row in summary_df.iterrows():
+        dong = row["동"]
+        coords = coord_map.get(dong)
+        if coords is None:
+            continue
+
+        # 크기: 방문자수 비례 (6~28)
+        ratio = row["총방문자수"] / max_visitors if max_visitors > 0 else 0
+        radius = 6 + ratio * 22
+
+        # 색상: 매출 강도 (파랑 → 빨강)
+        rev_ratio = row["총매출"] / max_revenue if max_revenue > 0 else 0
+        r = int(rev_ratio * 255)
+        b = int((1 - rev_ratio) * 200)
+        color = f"#{r:02x}40{b:02x}"
+
+        popup_html = (
+            f"<div style='font-size:13px;line-height:1.6'>"
+            f"<b style='font-size:15px'>{dong}</b>"
+            f"<hr style='margin:4px 0'>"
+            f"총 방문자수: <b>{row['총방문자수']:,}</b>명<br>"
+            f"총 매출: <b>{row['총매출']:,.0f}</b>원<br>"
+            f"<hr style='margin:4px 0'>"
+            f"음식점: {row.get('음식점매출', 0):,.0f}원<br>"
+            f"카페: {row.get('카페매출', 0):,.0f}원<br>"
+            f"편의점: {row.get('편의점매출', 0):,.0f}원<br>"
+            f"마트/슈퍼: {row.get('마트/슈퍼매출', 0):,.0f}원<br>"
+            f"기타: {row.get('기타매출', 0):,.0f}원"
+            f"</div>"
+        )
+
+        is_selected = dong == selected_dong
+        folium.CircleMarker(
+            location=[coords[0], coords[1]],
+            radius=radius,
+            color="#ef4444" if is_selected else color,
+            fill=True,
+            fill_color="#ef4444" if is_selected else color,
+            fill_opacity=0.7 if is_selected else 0.5,
+            weight=3 if is_selected else 1,
+            popup=folium.Popup(popup_html, max_width=300),
+            tooltip=f"{dong}: {row['총매출']:,.0f}원",
+        ).add_to(m)
+
+    # 선택된 동이면 상위 출발동에서 화살표 표시
+    if selected_dong and detail and not detail.get("by_origin", pd.DataFrame()).empty:
+        by_origin = detail["by_origin"]
+        top_origins = by_origin.head(8)
+        dest_coords = coord_map.get(selected_dong)
+        if dest_coords:
+            max_origin_visitors = top_origins["방문자수"].max() if not top_origins.empty else 1
+            for _, row in top_origins.iterrows():
+                origin = row["출발동"]
+                if origin == selected_dong:
+                    continue
+                origin_coords = coord_map.get(origin)
+                if origin_coords is None:
+                    continue
+
+                weight = 2 + (row["방문자수"] / max_origin_visitors) * 5
+                folium.PolyLine(
+                    locations=[
+                        [origin_coords[0], origin_coords[1]],
+                        [dest_coords[0], dest_coords[1]],
+                    ],
+                    color="#ef4444",
+                    weight=weight,
+                    opacity=0.6,
+                    popup=f"{origin} → {selected_dong}: {row['방문자수']:,}명",
+                    dash_array="5 10",
+                ).add_to(m)
+
+    return m
+
+
 def create_comparison_maps(
     gdf: gpd.GeoDataFrame,
     before_col: str,

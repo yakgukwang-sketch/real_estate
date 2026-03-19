@@ -246,6 +246,167 @@ def dong_ranking_chart(
     return fig
 
 
+def spending_power_bar_chart(
+    summary_df: pd.DataFrame,
+    title: str = "동별 소비력 순위 (상위 20)",
+    height: int = 500,
+) -> go.Figure:
+    """동별 소비력 수평 막대 차트.
+
+    Args:
+        summary_df: columns=[동, 총소비력, 주요주거유형, ...]
+    """
+    if summary_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title=title, height=height)
+        return fig
+
+    top20 = summary_df.nlargest(20, "총소비력").sort_values("총소비력")
+    fig = px.bar(
+        top20, x="총소비력", y="동", color="주요주거유형",
+        orientation="h", height=height, title=title,
+        color_discrete_map={
+            "아파트": "#3b82f6",
+            "빌라": "#f59e0b",
+            "오피스텔": "#8b5cf6",
+            "단독주택": "#10b981",
+        },
+    )
+    fig.update_layout(
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis_title="월 소비력 (원)",
+        yaxis_title="",
+    )
+    return fig
+
+
+def housing_composition_chart(
+    detail_df: pd.DataFrame,
+    dong: str,
+    title: str = "",
+    height: int = 400,
+) -> go.Figure:
+    """주거유형별 세대수 스택 바 차트.
+
+    Args:
+        detail_df: columns=[유형, 세대수, ...]
+        dong: 선택된 동 이름
+    """
+    if detail_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title=title or f"{dong} 주거유형 구성", height=height)
+        return fig
+
+    fig = px.bar(
+        detail_df, x="유형", y="세대수",
+        color="유형", title=title or f"{dong} 주거유형별 세대수",
+        height=height,
+        color_discrete_map={
+            "아파트": "#3b82f6",
+            "빌라": "#f59e0b",
+            "오피스텔": "#8b5cf6",
+            "단독주택": "#10b981",
+        },
+    )
+    fig.update_layout(
+        margin=dict(l=20, r=20, t=40, b=20),
+        showlegend=False,
+    )
+    return fig
+
+
+def foot_traffic_revenue_chart(
+    detail: dict,
+    dong: str,
+    height: int = 450,
+) -> go.Figure:
+    """업종별 방문자수 + 매출 그룹바 (secondary y-axis).
+
+    Args:
+        detail: FootTrafficSimulator.get_dong_detail() 결과
+        dong: 동 이름
+    """
+    by_cat = detail.get("by_category", pd.DataFrame())
+    if by_cat.empty:
+        fig = go.Figure()
+        fig.update_layout(title=f"{dong} 업종별 방문자/매출", height=height)
+        return fig
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=by_cat["업종"], y=by_cat["방문자수"],
+        name="방문자수", marker_color="#3b82f6", yaxis="y",
+    ))
+    fig.add_trace(go.Bar(
+        x=by_cat["업종"], y=by_cat["매출"],
+        name="매출(원)", marker_color="#ef4444", yaxis="y2",
+    ))
+    fig.update_layout(
+        title=f"{dong} 업종별 방문자 & 매출",
+        height=height,
+        barmode="group",
+        margin=dict(l=20, r=60, t=40, b=20),
+        yaxis=dict(title="방문자수", side="left"),
+        yaxis2=dict(title="매출 (원)", side="right", overlaying="y"),
+        legend=dict(x=0.01, y=0.99),
+    )
+    return fig
+
+
+def traffic_flow_sankey(
+    df: pd.DataFrame,
+    dong: str,
+    top_n: int = 10,
+    height: int = 450,
+) -> go.Figure:
+    """출발동 → 도착동 Sankey 다이어그램.
+
+    Args:
+        df: calculate_daily() 결과 DataFrame
+        dong: 도착동 기준 필터
+        top_n: 상위 N개 출발동만 표시
+    """
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(title=f"{dong} 유입 흐름 (Sankey)", height=height)
+        return fig
+
+    dest_df = df[df["도착동"] == dong]
+    if dest_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title=f"{dong} 유입 흐름 (Sankey)", height=height)
+        return fig
+
+    by_origin = dest_df.groupby("출발동")["방문자수"].sum().nlargest(top_n).reset_index()
+
+    # Sankey 노드: 출발동들 + 도착동
+    origins = by_origin["출발동"].tolist()
+    labels = origins + [dong]
+    source_idx = list(range(len(origins)))
+    target_idx = [len(origins)] * len(origins)
+    values = by_origin["방문자수"].tolist()
+
+    fig = go.Figure(go.Sankey(
+        node=dict(
+            pad=15, thickness=20,
+            label=labels,
+            color=["#93c5fd"] * len(origins) + ["#ef4444"],
+        ),
+        link=dict(
+            source=source_idx,
+            target=target_idx,
+            value=values,
+            color=["rgba(59,130,246,0.3)"] * len(origins),
+        ),
+    ))
+    fig.update_layout(
+        title=f"{dong} 상위 유입 흐름 (Top {top_n})",
+        height=height,
+        margin=dict(l=20, r=20, t=40, b=20),
+    )
+    return fig
+
+
 def forecast_chart(
     forecast_df: pd.DataFrame,
     title: str = "시계열 예측",
