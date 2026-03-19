@@ -36,7 +36,7 @@ AGENT_PROFILES: dict[str, dict] = {
                 {"name": "장보기", "prob": 0.15, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 25000},
             ]},
             {"time": "20:00", "slot": "밤", "actions": [
-                {"name": "산책/운동", "prob": 0.10, "dest_types": ["운동시설"], "dist_pref": "mid", "spend": 0},
+                {"name": "산책/운동", "prob": 0.10, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
                 {"name": "친구 약속", "prob": 0.08, "dest_types": ["음식점"], "dist_pref": "far", "spend": 20000},
             ]},
         ],
@@ -78,7 +78,7 @@ AGENT_PROFILES: dict[str, dict] = {
             ]},
             {"time": "15:00", "slot": "오후", "actions": [
                 {"name": "학원 픽업", "prob": 0.45, "dest_types": ["학원"], "dist_pref": "mid", "spend": 0},
-                {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설"], "dist_pref": "mid", "spend": 5000},
+                {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 5000},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
                 {"name": "저녁 외식", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 15000},
@@ -99,7 +99,7 @@ AGENT_PROFILES: dict[str, dict] = {
                 {"name": "저녁 외식", "prob": 0.15, "dest_types": ["음식점"], "dist_pref": "near", "spend": 7000},
             ]},
             {"time": "20:00", "slot": "밤", "actions": [
-                {"name": "산책/운동", "prob": 0.10, "dest_types": ["운동시설"], "dist_pref": "mid", "spend": 0},
+                {"name": "산책/운동", "prob": 0.10, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
             ]},
         ],
         "chain_prob": 0.20,
@@ -108,7 +108,7 @@ AGENT_PROFILES: dict[str, dict] = {
         "prob": 0.15,
         "schedule": [
             {"time": "06:00", "slot": "이른아침", "actions": [
-                {"name": "산책/운동", "prob": 0.40, "dest_types": ["운동시설"], "dist_pref": "mid", "spend": 0},
+                {"name": "산책/운동", "prob": 0.40, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "09:00", "slot": "오전", "actions": [
                 {"name": "병원/약국", "prob": 0.15, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 15000},
@@ -120,7 +120,7 @@ AGENT_PROFILES: dict[str, dict] = {
             ]},
             {"time": "15:00", "slot": "오후", "actions": [
                 {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 20000},
-                {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설"], "dist_pref": "near", "spend": 0},
+                {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설", "공원"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
                 {"name": "저녁 외식", "prob": 0.10, "dest_types": ["음식점"], "dist_pref": "near", "spend": 10000},
@@ -139,6 +139,7 @@ CHAIN_RULES: dict[str, list[dict]] = {
     "상점":      [{"dest_types": ["음식점"], "prob": 0.20, "spend": 8000}],
     "병원/약국": [{"dest_types": ["상점"], "prob": 0.15, "spend": 5000}],
     "운동시설":  [{"dest_types": ["음식점"], "prob": 0.25, "spend": 5500}],
+    "공원":      [{"dest_types": ["음식점"], "prob": 0.20, "spend": 5500}],
 }
 
 
@@ -204,6 +205,8 @@ def _load_buildings() -> list[dict]:
             dest_type = "어린이집/복지"
         elif "종교시설" in cats:
             dest_type = "종교시설"
+        elif "공원" in cats:
+            dest_type = "공원"
         elif "운동시설" in cats:
             dest_type = "운동시설"
         elif "문화및집회시설" in cats:
@@ -297,7 +300,7 @@ MOTIVATIONS = [
     {"name": "출근 전 커피",   "prob": 0.12, "dest_types": ["음식점"],                       "dist_pref": "near"},
     {"name": "등원/등교",      "prob": 0.08, "dest_types": ["학원", "학교"],                 "dist_pref": "mid"},
     {"name": "점심 외식",      "prob": 0.12, "dest_types": ["음식점"],                       "dist_pref": "mid"},
-    {"name": "산책/운동",      "prob": 0.08, "dest_types": ["운동시설"],                     "dist_pref": "mid"},
+    {"name": "산책/운동",      "prob": 0.08, "dest_types": ["운동시설", "공원"],                     "dist_pref": "mid"},
     {"name": "장보기",         "prob": 0.08, "dest_types": ["상점", "대형상가"],             "dist_pref": "mid"},
     {"name": "학원 픽업",      "prob": 0.07, "dest_types": ["학원"],                         "dist_pref": "mid"},
     {"name": "병원/약국",      "prob": 0.04, "dest_types": ["병원/약국"],                    "dist_pref": "near"},
