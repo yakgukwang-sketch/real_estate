@@ -1,7 +1,7 @@
-"""단일 아파트 에이전트 시뮬레이션 (v2).
+"""에이전트 시뮬레이션 — 다중 지역 지원 (v3).
 
-래미안 대치팰리스 주민들이 인도 네트워크 위에서 실제 건물로 이동.
-v2: 에이전트 유형 분화, 시간대별 스케줄, 연쇄 이동(trip chain), 소비 시뮬레이션.
+대치동: 아파트 주민이 나가는 모델 (단일 출발점)
+영등포역: 여러 곳에서 사람이 들어오는 상업지구 모델 (다중 출발점)
 """
 
 from __future__ import annotations
@@ -15,32 +15,37 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.simulation.sidewalk import build_daechi_network, _distance_m
+from src.simulation.sidewalk import (
+    build_network, build_daechi_network, _distance_m,
+    AreaConfig, DAECHI_CONFIG, YEONGDEUNGPO_CONFIG, _DATA_ROOT,
+)
 
 
-# ── 에이전트 유형 프로파일 ──
+# ══════════════════════════════════════════════════════════════
+#  대치동 프로파일 (기존)
+# ══════════════════════════════════════════════════════════════
 
-AGENT_PROFILES: dict[str, dict] = {
+DAECHI_PROFILES: dict[str, dict] = {
     "직장인": {
         "prob": 0.35,
         "schedule": [
             {"time": "07:00", "slot": "이른아침", "actions": [
                 {"name": "출근", "prob": 0.90, "dest_types": None, "dist_pref": "far", "spend": 0},
-                {"name": "출근 전 커피", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "near", "spend": 5500},
+                {"name": "출근 전 커피", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
-                {"name": "점심 외식", "prob": 0.50, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 9000},
+                {"name": "점심 외식", "prob": 0.50, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
-                {"name": "저녁 외식", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 15000},
-                {"name": "장보기", "prob": 0.15, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 25000},
+                {"name": "저녁 외식", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "장보기", "prob": 0.15, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "20:00", "slot": "밤", "actions": [
                 {"name": "산책/운동", "prob": 0.10, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
-                {"name": "친구 약속", "prob": 0.08, "dest_types": ["음식점"], "dist_pref": "far", "spend": 20000},
+                {"name": "친구 약속", "prob": 0.08, "dest_types": ["음식점"], "dist_pref": "far", "spend": 0},
             ]},
         ],
-        "chain_prob": 0.15,  # 연쇄 이동 확률
+        "chain_prob": 0.15,
     },
     "맞벌이": {
         "prob": 0.20,
@@ -50,14 +55,14 @@ AGENT_PROFILES: dict[str, dict] = {
                 {"name": "출근", "prob": 0.85, "dest_types": None, "dist_pref": "far", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
-                {"name": "점심 외식", "prob": 0.40, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 9000},
+                {"name": "점심 외식", "prob": 0.40, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "17:00", "slot": "오후", "actions": [
                 {"name": "학원 픽업", "prob": 0.50, "dest_types": ["학원"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "19:00", "slot": "저녁", "actions": [
-                {"name": "저녁 외식", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "near", "spend": 12000},
-                {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "near", "spend": 30000},
+                {"name": "저녁 외식", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+                {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "near", "spend": 0},
             ]},
         ],
         "chain_prob": 0.25,
@@ -69,19 +74,19 @@ AGENT_PROFILES: dict[str, dict] = {
                 {"name": "등원/등교", "prob": 0.50, "dest_types": ["학원", "학교", "어린이집/복지"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "10:00", "slot": "오전", "actions": [
-                {"name": "장보기", "prob": 0.35, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 35000},
-                {"name": "동네 볼일", "prob": 0.20, "dest_types": ["생활서비스", "기타"], "dist_pref": "near", "spend": 5000},
-                {"name": "병원/약국", "prob": 0.08, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 10000},
+                {"name": "장보기", "prob": 0.35, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "동네 볼일", "prob": 0.20, "dest_types": ["생활서비스", "기타"], "dist_pref": "near", "spend": 0},
+                {"name": "병원/약국", "prob": 0.08, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
-                {"name": "점심 외식", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 12000},
+                {"name": "점심 외식", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "15:00", "slot": "오후", "actions": [
                 {"name": "학원 픽업", "prob": 0.45, "dest_types": ["학원"], "dist_pref": "mid", "spend": 0},
-                {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 5000},
+                {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
-                {"name": "저녁 외식", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 15000},
+                {"name": "저녁 외식", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
             ]},
         ],
         "chain_prob": 0.30,
@@ -96,7 +101,7 @@ AGENT_PROFILES: dict[str, dict] = {
                 {"name": "등원/등교", "prob": 0.70, "dest_types": ["학원"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
-                {"name": "저녁 외식", "prob": 0.15, "dest_types": ["음식점"], "dist_pref": "near", "spend": 7000},
+                {"name": "저녁 외식", "prob": 0.15, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "20:00", "slot": "밤", "actions": [
                 {"name": "산책/운동", "prob": 0.10, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
@@ -111,47 +116,171 @@ AGENT_PROFILES: dict[str, dict] = {
                 {"name": "산책/운동", "prob": 0.40, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "09:00", "slot": "오전", "actions": [
-                {"name": "병원/약국", "prob": 0.15, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 15000},
-                {"name": "동네 볼일", "prob": 0.15, "dest_types": ["생활서비스", "기타"], "dist_pref": "near", "spend": 5000},
+                {"name": "병원/약국", "prob": 0.15, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
+                {"name": "동네 볼일", "prob": 0.15, "dest_types": ["생활서비스", "기타"], "dist_pref": "near", "spend": 0},
                 {"name": "종교 활동", "prob": 0.08, "dest_types": ["종교시설"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
-                {"name": "점심 외식", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "near", "spend": 8000},
+                {"name": "점심 외식", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "15:00", "slot": "오후", "actions": [
-                {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 20000},
+                {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
                 {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설", "공원"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
-                {"name": "저녁 외식", "prob": 0.10, "dest_types": ["음식점"], "dist_pref": "near", "spend": 10000},
+                {"name": "저녁 외식", "prob": 0.10, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
             ]},
         ],
         "chain_prob": 0.10,
     },
 }
 
-# 연쇄 이동: 현재 목적지 유형 → 다음 가능한 유형
-CHAIN_RULES: dict[str, list[dict]] = {
-    "학원":      [{"dest_types": ["음식점"], "prob": 0.3, "spend": 5000}],
-    "학교":      [{"dest_types": ["음식점"], "prob": 0.2, "spend": 5000}],
-    "음식점":    [{"dest_types": ["상점"], "prob": 0.15, "spend": 10000},
-                  {"dest_types": ["음식점"], "prob": 0.10, "spend": 5500}],
-    "상점":      [{"dest_types": ["음식점"], "prob": 0.20, "spend": 8000}],
-    "병원/약국": [{"dest_types": ["상점"], "prob": 0.15, "spend": 5000}],
-    "운동시설":  [{"dest_types": ["음식점"], "prob": 0.25, "spend": 5500}],
-    "공원":      [{"dest_types": ["음식점"], "prob": 0.20, "spend": 5500}],
+# ══════════════════════════════════════════════════════════════
+#  영등포역 프로파일
+# ══════════════════════════════════════════════════════════════
+
+YEONGDEUNGPO_PROFILES: dict[str, dict] = {
+    "환승객": {
+        "prob": 0.20,
+        "origins": {"영등포역": 0.70, "영등포시장역": 0.20, "신길역": 0.10},
+        "schedule": [
+            {"time": "08:00", "slot": "이른아침", "actions": [
+                {"name": "커피/간식", "prob": 0.60, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "12:00", "slot": "점심", "actions": [
+                {"name": "점심 외식", "prob": 0.35, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "18:00", "slot": "저녁", "actions": [
+                {"name": "간단 식사", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+        ],
+        "chain_prob": 0.10,
+    },
+    "쇼핑객": {
+        "prob": 0.25,
+        "origins": {"영등포역": 0.45, "영등포시장역": 0.20, "영등포동_주거": 0.25, "신길역": 0.10},
+        "schedule": [
+            {"time": "10:00", "slot": "오전", "actions": [
+                {"name": "쇼핑", "prob": 0.50, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+            ]},
+            {"time": "12:00", "slot": "점심", "actions": [
+                {"name": "점심 외식", "prob": 0.55, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+            ]},
+            {"time": "14:00", "slot": "오후", "actions": [
+                {"name": "쇼핑", "prob": 0.40, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "생활서비스", "prob": 0.15, "dest_types": ["생활서비스"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "18:00", "slot": "저녁", "actions": [
+                {"name": "저녁 외식", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+            ]},
+        ],
+        "chain_prob": 0.30,
+    },
+    "직장인(점심)": {
+        "prob": 0.20,
+        "origins": {"영등포_업무": 0.60, "영등포역": 0.30, "영등포시장역": 0.10},
+        "schedule": [
+            {"time": "08:00", "slot": "이른아침", "actions": [
+                {"name": "출근 커피", "prob": 0.35, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "12:00", "slot": "점심", "actions": [
+                {"name": "점심 외식", "prob": 0.80, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+            ]},
+            {"time": "18:00", "slot": "저녁", "actions": [
+                {"name": "퇴근 후 식사", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "퇴근 후 쇼핑", "prob": 0.15, "dest_types": ["상점", "대형상가"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "19:00", "slot": "저녁", "actions": [
+                {"name": "약속/회식", "prob": 0.12, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+            ]},
+        ],
+        "chain_prob": 0.15,
+    },
+    "주민": {
+        "prob": 0.20,
+        "origins": {"영등포동_주거": 0.70, "영등포시장역": 0.15, "신길역": 0.15},
+        "schedule": [
+            {"time": "09:00", "slot": "오전", "actions": [
+                {"name": "장보기", "prob": 0.35, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "병원/약국", "prob": 0.12, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
+                {"name": "동네 볼일", "prob": 0.15, "dest_types": ["생활서비스", "기타"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "12:00", "slot": "점심", "actions": [
+                {"name": "점심 외식", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+            ]},
+            {"time": "15:00", "slot": "오후", "actions": [
+                {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
+                {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "18:00", "slot": "저녁", "actions": [
+                {"name": "저녁 외식", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+            ]},
+        ],
+        "chain_prob": 0.25,
+    },
+    "시장방문객": {
+        "prob": 0.15,
+        "origins": {"영등포역": 0.35, "영등포시장역": 0.30, "영등포동_주거": 0.25, "신길역": 0.10},
+        "schedule": [
+            {"time": "09:00", "slot": "오전", "actions": [
+                {"name": "시장 장보기", "prob": 0.60, "dest_types": ["상점"], "dist_pref": "mid", "spend": 0},
+            ]},
+            {"time": "12:00", "slot": "점심", "actions": [
+                {"name": "시장 먹거리", "prob": 0.45, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "15:00", "slot": "오후", "actions": [
+                {"name": "추가 장보기", "prob": 0.30, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+            ]},
+        ],
+        "chain_prob": 0.25,
+    },
 }
 
 
-# ── 업종별 객단가 (소비 시뮬레이션) ──
+# 연쇄 이동: 현재 목적지 유형 → 다음 가능한 유형
+CHAIN_RULES: dict[str, list[dict]] = {
+    "학원":      [{"dest_types": ["음식점"], "prob": 0.3, "spend": 0}],
+    "학교":      [{"dest_types": ["음식점"], "prob": 0.2, "spend": 0}],
+    "음식점":    [{"dest_types": ["상점"], "prob": 0.15, "spend": 0},
+                  {"dest_types": ["음식점"], "prob": 0.10, "spend": 0}],
+    "상점":      [{"dest_types": ["음식점"], "prob": 0.20, "spend": 0}],
+    "병원/약국": [{"dest_types": ["상점"], "prob": 0.15, "spend": 0}],
+    "운동시설":  [{"dest_types": ["음식점"], "prob": 0.25, "spend": 0}],
+    "공원":      [{"dest_types": ["음식점"], "prob": 0.20, "spend": 0}],
+    "대형상가":  [{"dest_types": ["음식점"], "prob": 0.25, "spend": 0}],
+}
 
+
+# ── 실제 매출 데이터 ──
+
+AREA_SALES: dict[str, dict] = {
+    "daechi": {
+        "annual": 1_202_800_000_000,  # 1조 2,028억원 (대치/은마/도곡 상권 2024년)
+        "apt_share": 1600 / 20000,     # 래미안 비중
+    },
+    "yeongdeungpo": {
+        "annual": 628_800_000_000,     # 6,288억원 (영등포역 상권 2024년)
+        "apt_share": 1.0,              # 상권 전체 커버
+    },
+}
+
+# 하위호환
+REAL_ANNUAL_SALES: int = AREA_SALES["daechi"]["annual"]
+
+# 업종별 객단가
 SPEND_BY_DEST: dict[str, int] = {
-    "음식점": 9000,
-    "상점": 15000,
+    "음식점": 15300,
+    "학원": 16000,
+    "학교": 0,
+    "상점": 9700,
     "대형상가": 30000,
-    "병원/약국": 12000,
-    "생활서비스": 5000,
-    "기타": 7000,
+    "병원/약국": 39700,
+    "생활서비스": 60900,
+    "운동시설": 13000,
+    "기타": 32400,
+    "종교시설": 0,
+    "공원": 0,
+    "어린이집/복지": 0,
 }
 
 
@@ -160,23 +289,195 @@ class Agent:
     id: int
     home: tuple[float, float]
     profile: str = ""
+    origin: str = ""  # 출발점 이름 (다중 출발점)
     log: list[dict] = field(default_factory=list)
 
 
-# 래미안 대치팰리스 좌표
+# 래미안 대치팰리스 좌표 (하위호환)
 APT_COORDS = (37.4945, 127.0625)
 
-# 인도 네트워크
-NETWORK = build_daechi_network()
 
-# 실제 건물 데이터 로드
-_BUILDINGS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "raw" / "buildings_classified.json"
+# ══════════════════════════════════════════════════════════════
+#  Lazy-loaded 지역별 시뮬레이션 데이터
+# ══════════════════════════════════════════════════════════════
+
+class _AreaData:
+    """한 지역의 네트워크 + 목적지 + 경로를 lazy-load."""
+
+    def __init__(self, config: AreaConfig, profiles: dict[str, dict]):
+        self.config = config
+        self.profiles = profiles
+        self._network = None
+        self._buildings = None
+        self._destinations = None
+        self._origin_dists: dict[str, dict] = {}   # origin → {node: dist}
+        self._origin_prevs: dict[str, dict] = {}   # origin → {node: prev}
+
+    @property
+    def network(self):
+        if self._network is None:
+            self._network = build_network(self.config)
+        return self._network
+
+    @property
+    def buildings(self):
+        if self._buildings is None:
+            self._buildings = _load_buildings(
+                _DATA_ROOT / self.config.buildings_file
+            )
+        return self._buildings
+
+    @property
+    def destinations(self):
+        if self._destinations is None:
+            self._init_destinations()
+        return self._destinations
+
+    def _dijkstra_from(self, start_id: str):
+        """start_id에서 전체 노드까지 최단 거리."""
+        if start_id in self._origin_dists:
+            return self._origin_dists[start_id], self._origin_prevs[start_id]
+
+        dist = {start_id: 0.0}
+        prev = {start_id: None}
+        heap = [(0.0, start_id)]
+        while heap:
+            d, nid = heapq.heappop(heap)
+            if d > dist.get(nid, float("inf")):
+                continue
+            for edge in self.network.edges.get(nid, []):
+                nd = d + edge.walk_sec
+                if nd < dist.get(edge.to_id, float("inf")):
+                    dist[edge.to_id] = nd
+                    prev[edge.to_id] = nid
+                    heapq.heappush(heap, (nd, edge.to_id))
+
+        self._origin_dists[start_id] = dist
+        self._origin_prevs[start_id] = prev
+        return dist, prev
+
+    def _reconstruct_path(self, origin_id: str, end_id: str) -> list[str]:
+        prev = self._origin_prevs.get(origin_id, {})
+        path = []
+        cur = end_id
+        while cur is not None:
+            path.append(cur)
+            cur = prev.get(cur)
+        return list(reversed(path))
+
+    def get_origin_ids(self) -> list[str]:
+        """사용 가능한 출발점 노드 ID 목록."""
+        if self.config.apt_node:
+            return ["apt"]
+        ids = []
+        for name in self.config.origin_points:
+            stn_id = f"subway_{name}"
+            if stn_id in self.network.nodes:
+                ids.append(stn_id)
+            else:
+                oid = f"origin_{name}"
+                if oid in self.network.nodes:
+                    ids.append(oid)
+        return ids
+
+    def resolve_origin_id(self, origin_name: str) -> str:
+        """출발점 이름 → 네트워크 노드 ID."""
+        if origin_name == "apt":
+            return "apt"
+        stn_id = f"subway_{origin_name}"
+        if stn_id in self.network.nodes:
+            return stn_id
+        return f"origin_{origin_name}"
+
+    def _init_destinations(self):
+        """모든 출발점에서 Dijkstra 실행 후 목적지 빌드."""
+        net = self.network
+
+        # 모든 출발점에서 Dijkstra
+        origin_ids = self.get_origin_ids()
+        for oid in origin_ids:
+            self._dijkstra_from(oid)
+
+        # 대표 출발점 (첫 번째)
+        primary_id = origin_ids[0] if origin_ids else "apt"
+        primary_dist = self._origin_dists.get(primary_id, {})
+        primary_prev = self._origin_prevs.get(primary_id, {})
+
+        skip = {"apt"} | {nid for nid in net.nodes if nid.startswith("subway_") or nid.startswith("origin_")}
+
+        dests = []
+        for bld in self.buildings:
+            nearest = net.nearest_node(bld["lat"], bld["lon"], exclude=skip)
+            if not nearest or nearest not in primary_dist:
+                continue
+
+            dist_sec = primary_dist[nearest]
+            if dist_sec < 20 or dist_sec > 2400:
+                continue
+
+            path_ids = self._reconstruct_path(primary_id, nearest)
+            coords = net.path_to_coords(path_ids)
+            crossings = sum(1 for n in path_ids if net.nodes.get(n) and net.nodes[n].is_crosswalk)
+
+            dests.append({
+                "name": bld["name"],
+                "dest_type": bld["dest_type"],
+                "store_count": bld["store_count"],
+                "node_id": nearest,
+                "coords": coords,
+                "walk_sec": dist_sec,
+                "walk_min": max(1, round(dist_sec / 60)),
+                "crossings": crossings,
+            })
+
+        # 노출도 계산
+        node_traffic: dict[str, int] = {}
+        for d in dests:
+            path = self._reconstruct_path(primary_id, d["node_id"])
+            for nid in path:
+                node_traffic[nid] = node_traffic.get(nid, 0) + 1
+
+        for d in dests:
+            nid = d["node_id"]
+            exposure = node_traffic.get(nid, 0)
+            for edge in net.edges.get(nid, []):
+                exposure += node_traffic.get(edge.to_id, 0) * 0.5
+            d["exposure"] = exposure
+
+        max_exp = max((d["exposure"] for d in dests), default=1)
+        for d in dests:
+            d["exposure_norm"] = d["exposure"] / max_exp if max_exp > 0 else 0
+
+        self._destinations = dests
+
+    def get_dest_for_origin(self, origin_id: str, bld: dict) -> dict | None:
+        """특정 출발점에서 건물까지의 경로 정보."""
+        dist_map = self._origin_dists.get(origin_id, {})
+        nearest = bld["node_id"]
+        if nearest not in dist_map:
+            return None
+
+        dist_sec = dist_map[nearest]
+        if dist_sec < 20 or dist_sec > 2400:
+            return None
+
+        path_ids = self._reconstruct_path(origin_id, nearest)
+        coords = self.network.path_to_coords(path_ids)
+        crossings = sum(1 for n in path_ids if self.network.nodes.get(n) and self.network.nodes[n].is_crosswalk)
+
+        return {
+            **bld,
+            "coords": coords,
+            "walk_sec": dist_sec,
+            "walk_min": max(1, round(dist_sec / 60)),
+            "crossings": crossings,
+        }
 
 
-def _load_buildings() -> list[dict]:
-    if not _BUILDINGS_PATH.exists():
+def _load_buildings(path: Path) -> list[dict]:
+    if not path.exists():
         return []
-    with open(_BUILDINGS_PATH, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         buildings = json.load(f)
 
     results = []
@@ -188,7 +489,6 @@ def _load_buildings() -> list[dict]:
         cats = b.get("categories", {})
         btype = b.get("bld_type", "")
 
-        # 목적지 유형 매핑 (상가 API 대분류 + 건축물대장 용도)
         if "음식" in cats:
             dest_type = "음식점"
         elif "교육연구시설" in cats:
@@ -226,97 +526,110 @@ def _load_buildings() -> list[dict]:
     return results
 
 
-BUILDINGS = _load_buildings()
+# ── 지역별 데이터 캐시 (lazy) ──
+
+_area_data_cache: dict[str, _AreaData] = {}
 
 
-# --- apt에서 모든 노드까지 최단 거리 (1회 다익스트라) ---
-def _dijkstra_from_apt():
-    dist = {"apt": 0.0}
-    prev = {"apt": None}
-    heap = [(0.0, "apt")]
-    while heap:
-        d, nid = heapq.heappop(heap)
-        if d > dist.get(nid, float("inf")):
-            continue
-        for edge in NETWORK.edges.get(nid, []):
-            nd = d + edge.walk_sec
-            if nd < dist.get(edge.to_id, float("inf")):
-                dist[edge.to_id] = nd
-                prev[edge.to_id] = nid
-                heapq.heappush(heap, (nd, edge.to_id))
-    return dist, prev
+def _get_area_data(area: str) -> _AreaData:
+    if area not in _area_data_cache:
+        if area == "daechi":
+            _area_data_cache[area] = _AreaData(DAECHI_CONFIG, DAECHI_PROFILES)
+        elif area == "yeongdeungpo":
+            _area_data_cache[area] = _AreaData(YEONGDEUNGPO_CONFIG, YEONGDEUNGPO_PROFILES)
+        else:
+            raise ValueError(f"Unknown area: {area}")
+    return _area_data_cache[area]
 
 
-_APT_DIST, _APT_PREV = _dijkstra_from_apt()
+# 하위호환: module-level 전역 (대치동 데이터는 첫 접근 시 로드)
+def _get_daechi():
+    return _get_area_data("daechi")
 
 
-def _reconstruct_path(end_id: str) -> list[str]:
-    path = []
-    cur = end_id
-    while cur is not None:
-        path.append(cur)
-        cur = _APT_PREV.get(cur)
-    return list(reversed(path))
+class _LazyProxy:
+    """Module-level 전역변수를 lazy-load하기 위한 프록시."""
+    def __init__(self, attr):
+        self._attr = attr
+        self._resolved = False
+        self._value = None
+
+    def _resolve(self):
+        if not self._resolved:
+            ad = _get_daechi()
+            if self._attr == "network":
+                self._value = ad.network
+            elif self._attr == "destinations":
+                self._value = ad.destinations
+            self._resolved = True
+        return self._value
 
 
-# --- 각 건물에서 가장 가까운 네트워크 노드 + 경로 캐시 ---
-def _build_building_destinations():
-    """각 건물의 최근접 네트워크 노드를 찾고, apt에서의 경로를 계산."""
-    dests = []
-    skip = {"apt"} | {nid for nid in NETWORK.nodes if nid.startswith("subway_")}
-
-    for bld in BUILDINGS:
-        nearest = NETWORK.nearest_node(bld["lat"], bld["lon"], exclude=skip)
-        if not nearest or nearest not in _APT_DIST:
-            continue
-
-        dist_sec = _APT_DIST[nearest]
-        if dist_sec < 20 or dist_sec > 2400:  # 20초~40분
-            continue
-
-        path_ids = _reconstruct_path(nearest)
-        coords = NETWORK.path_to_coords(path_ids)
-        crossings = sum(1 for n in path_ids if NETWORK.nodes.get(n) and NETWORK.nodes[n].is_crosswalk)
-
-        dests.append({
-            "name": bld["name"],
-            "dest_type": bld["dest_type"],
-            "store_count": bld["store_count"],
-            "node_id": nearest,
-            "coords": coords,
-            "walk_sec": dist_sec,
-            "walk_min": max(1, round(dist_sec / 60)),
-            "crossings": crossings,
-        })
-    return dests
+# 대치동 전역 (하위호환)  — 실제 접근은 lazy
+_network_proxy = _LazyProxy("network")
+_destinations_proxy = _LazyProxy("destinations")
 
 
-DESTINATIONS = _build_building_destinations()
-DEST_TYPES = sorted(set(d["dest_type"] for d in DESTINATIONS))
-
-# v1 호환용 MOTIVATIONS (대시보드 참조)
-MOTIVATIONS = [
-    {"name": "출근",           "prob": 0.25, "dest_types": None,                             "dist_pref": "far"},
-    {"name": "출근 전 커피",   "prob": 0.12, "dest_types": ["음식점"],                       "dist_pref": "near"},
-    {"name": "등원/등교",      "prob": 0.08, "dest_types": ["학원", "학교"],                 "dist_pref": "mid"},
-    {"name": "점심 외식",      "prob": 0.12, "dest_types": ["음식점"],                       "dist_pref": "mid"},
-    {"name": "산책/운동",      "prob": 0.08, "dest_types": ["운동시설", "공원"],                     "dist_pref": "mid"},
-    {"name": "장보기",         "prob": 0.08, "dest_types": ["상점", "대형상가"],             "dist_pref": "mid"},
-    {"name": "학원 픽업",      "prob": 0.07, "dest_types": ["학원"],                         "dist_pref": "mid"},
-    {"name": "병원/약국",      "prob": 0.04, "dest_types": ["병원/약국"],                    "dist_pref": "near"},
-    {"name": "저녁 외식",      "prob": 0.10, "dest_types": ["음식점"],                       "dist_pref": "mid"},
-    {"name": "동네 볼일",      "prob": 0.08, "dest_types": ["생활서비스", "어린이집/복지", "기타"], "dist_pref": "near"},
-    {"name": "친구 약속",      "prob": 0.06, "dest_types": ["음식점"],                       "dist_pref": "far"},
-    {"name": "종교 활동",      "prob": 0.03, "dest_types": ["종교시설"],                     "dist_pref": "mid"},
-]
+class _NetworkAccessor:
+    """NETWORK 전역변수 프록시."""
+    def __getattr__(self, name):
+        return getattr(_network_proxy._resolve(), name)
 
 
-def _pick_destination(dest_types: list[str] | None, dist_pref: str) -> dict | None:
+NETWORK = _NetworkAccessor()
+DESTINATIONS = []  # 실제론 simulate 내부에서 area_data.destinations 사용
+
+
+def _ensure_legacy_globals():
+    """하위호환 전역변수를 실제 값으로 채움."""
+    global DESTINATIONS, NETWORK
+    ad = _get_daechi()
+    NETWORK = ad.network
+    DESTINATIONS = ad.destinations
+
+
+# ── 체류 시간 ──
+
+STAY_MINUTES: dict[str, tuple[int, int]] = {
+    "출근":          (420, 540),
+    "출근 전 커피":  (5, 15),
+    "등원/등교":     (180, 360),
+    "점심 외식":     (30, 60),
+    "산책/운동":     (20, 60),
+    "장보기":        (15, 45),
+    "학원 픽업":     (5, 15),
+    "병원/약국":     (20, 60),
+    "저녁 외식":     (40, 90),
+    "동네 볼일":     (10, 30),
+    "친구 약속":     (60, 150),
+    "종교 활동":     (40, 90),
+    # 영등포 추가
+    "커피/간식":     (5, 20),
+    "쇼핑":          (30, 90),
+    "생활서비스":    (15, 45),
+    "간단 식사":     (20, 40),
+    "출근 커피":     (5, 15),
+    "퇴근 후 식사":  (30, 60),
+    "퇴근 후 쇼핑":  (15, 45),
+    "약속/회식":     (60, 120),
+    "시장 장보기":   (20, 60),
+    "시장 먹거리":   (15, 40),
+    "추가 장보기":   (15, 40),
+}
+
+
+# ── 시뮬레이션 ──
+
+def _pick_destination(
+    destinations: list[dict],
+    dest_types: list[str] | None,
+    dist_pref: str,
+) -> dict | None:
     """동기에 맞는 건물 목적지 선택."""
     if dest_types:
-        pool = [d for d in DESTINATIONS if d["dest_type"] in dest_types]
+        pool = [d for d in destinations if d["dest_type"] in dest_types]
     else:
-        pool = DESTINATIONS
+        pool = destinations
 
     if not pool:
         return None
@@ -327,10 +640,13 @@ def _pick_destination(dest_types: list[str] | None, dist_pref: str) -> dict | No
         if dist_pref == "near":
             w = math.exp(-sec / 200.0)
         elif dist_pref == "mid":
-            w = math.exp(-((sec - 400) ** 2) / 80000.0)
+            w = math.exp(-sec / 400.0)
         else:
             w = 1.0 - math.exp(-sec / 400.0)
+
         w *= max(1, min(d["store_count"], 20)) ** 0.5
+        exposure_boost = 1.0 + d.get("exposure_norm", 0) * 1.5
+        w *= exposure_boost
         weights.append(max(w, 0.001))
 
     total = sum(weights)
@@ -343,50 +659,143 @@ def _pick_destination(dest_types: list[str] | None, dist_pref: str) -> dict | No
     return pool[-1]
 
 
-def _assign_profile() -> str:
-    """가중 확률로 에이전트 유형 배정."""
+def _assign_profile(profiles: dict[str, dict]) -> str:
     r = random.random()
     cumulative = 0.0
-    for name, profile in AGENT_PROFILES.items():
+    for name, profile in profiles.items():
         cumulative += profile["prob"]
         if r <= cumulative:
             return name
-    return list(AGENT_PROFILES.keys())[-1]
+    return list(profiles.keys())[-1]
 
 
-def _try_chain(current_dest_type: str, chain_prob: float) -> dict | None:
-    """연쇄 이동 시도: 현재 목적지에서 다음 목적지로."""
+def _assign_origin(profile: dict, config: AreaConfig) -> str:
+    """에이전트의 출발점 배정."""
+    origins = profile.get("origins")
+    if not origins:
+        return "apt"
+
+    r = random.random()
+    cumulative = 0.0
+    for name, prob in origins.items():
+        cumulative += prob
+        if r <= cumulative:
+            return name
+    return list(origins.keys())[-1]
+
+
+def _try_chain(
+    destinations: list[dict],
+    current_dest_type: str,
+    chain_prob: float,
+) -> dict | None:
     rules = CHAIN_RULES.get(current_dest_type, [])
     if not rules or random.random() > chain_prob:
         return None
 
     for rule in rules:
         if random.random() < rule["prob"]:
-            dest = _pick_destination(rule["dest_types"], "near")
+            dest = _pick_destination(destinations, rule["dest_types"], "near")
             if dest:
                 return {"dest": dest, "spend": rule["spend"]}
     return None
 
 
-def simulate(n_agents: int = 100, seed: int | None = 42) -> list[Agent]:
-    """v2 시뮬레이션: 유형별 시간대 스케줄 + 연쇄 이동 + 소비."""
+def _time_to_min(time_str: str) -> int:
+    h, m = time_str.split(":")
+    return int(h) * 60 + int(m)
+
+
+def simulate(
+    n_agents: int = 100,
+    seed: int | None = 42,
+    area: str = "daechi",
+) -> list[Agent]:
+    """시뮬레이션 실행.
+
+    Args:
+        n_agents: 에이전트 수
+        seed: 랜덤 시드
+        area: "daechi" 또는 "yeongdeungpo"
+    """
     if seed is not None:
         random.seed(seed)
 
+    area_data = _get_area_data(area)
+    config = area_data.config
+    profiles = area_data.profiles
+    destinations = area_data.destinations
+
+    # 다중 출발점인 경우 각 출발점별 목적지 캐시
+    is_multi_origin = bool(config.origin_points) and not config.apt_node
+    home_coords = config.center
+
     agents = []
     for i in range(n_agents):
-        profile_name = _assign_profile()
-        profile = AGENT_PROFILES[profile_name]
-        agent = Agent(id=i, home=APT_COORDS, profile=profile_name)
+        profile_name = _assign_profile(profiles)
+        profile = profiles[profile_name]
+        origin_name = _assign_origin(profile, config)
+        origin_id = area_data.resolve_origin_id(origin_name)
+
+        # 출발점 좌표
+        if origin_id in area_data.network.nodes:
+            node = area_data.network.nodes[origin_id]
+            home = (node.lat, node.lon)
+        else:
+            home = home_coords
+
+        agent = Agent(id=i, home=home, profile=profile_name, origin=origin_name)
+
+        # 해당 출발점에서 Dijkstra 실행 (캐시됨)
+        area_data._dijkstra_from(origin_id)
+        dist_map = area_data._origin_dists.get(origin_id, {})
+
+        # 이 출발점에서 도달 가능한 목적지 목록 빌드
+        origin_dests = []
+        for d in destinations:
+            nid = d["node_id"]
+            if nid in dist_map:
+                sec = dist_map[nid]
+                if 20 <= sec <= 2400:
+                    # 출발점별 경로 정보로 덮어쓰기
+                    path_ids = area_data._reconstruct_path(origin_id, nid)
+                    coords = area_data.network.path_to_coords(path_ids)
+                    crossings = sum(
+                        1 for n in path_ids
+                        if area_data.network.nodes.get(n) and area_data.network.nodes[n].is_crosswalk
+                    )
+                    origin_dests.append({
+                        **d,
+                        "coords": coords,
+                        "walk_sec": sec,
+                        "walk_min": max(1, round(sec / 60)),
+                        "crossings": crossings,
+                    })
+
+        if not origin_dests:
+            origin_dests = destinations  # fallback
+
+        next_available_min = 0
 
         for slot in profile["schedule"]:
+            base_min = _time_to_min(slot["time"])
+
             for action in slot["actions"]:
                 if random.random() >= action["prob"]:
                     continue
 
-                dest = _pick_destination(action["dest_types"], action.get("dist_pref", "mid"))
+                dest = _pick_destination(origin_dests, action["dest_types"], action.get("dist_pref", "mid"))
                 if dest is None:
                     continue
+
+                jitter = random.randint(-10, 20)
+                depart_min = max(base_min + jitter, next_available_min)
+
+                stay_range = STAY_MINUTES.get(action["name"], (15, 45))
+                stay_min = random.randint(stay_range[0], stay_range[1])
+
+                walk_min = dest["walk_min"]
+                return_min = depart_min + walk_min + stay_min + walk_min
 
                 spend = action.get("spend", 0)
                 if spend == 0:
@@ -398,33 +807,48 @@ def simulate(n_agents: int = 100, seed: int | None = 42) -> list[Agent]:
                     "slot": slot["slot"],
                     "dest_name": dest["name"],
                     "dest_type": dest["dest_type"],
-                    "dest_coords": dest["coords"][-1] if dest["coords"] else APT_COORDS,
+                    "dest_coords": dest["coords"][-1] if dest["coords"] else home,
                     "road_path": dest["coords"],
-                    "walk_min": dest["walk_min"],
+                    "walk_min": walk_min,
                     "walk_sec": dest["walk_sec"],
                     "crossings": dest["crossings"],
                     "spend": spend,
                     "is_chain": False,
+                    "depart_min": depart_min,
+                    "stay_min": stay_min,
+                    "return_min": return_min,
+                    "origin": origin_name,
                 })
 
-                # 연쇄 이동
-                chain = _try_chain(dest["dest_type"], profile["chain_prob"])
+                next_available_min = return_min
+
+                chain = _try_chain(origin_dests, dest["dest_type"], profile["chain_prob"])
                 if chain:
                     cd = chain["dest"]
+                    chain_depart = depart_min + walk_min + stay_min
+                    chain_stay = random.randint(10, 30)
+                    chain_return = chain_depart + cd["walk_min"] + chain_stay + cd["walk_min"]
+
                     agent.log.append({
                         "motivation": f"→ {cd['dest_type']}",
                         "time": slot["time"],
                         "slot": slot["slot"],
                         "dest_name": cd["name"],
                         "dest_type": cd["dest_type"],
-                        "dest_coords": cd["coords"][-1] if cd["coords"] else APT_COORDS,
+                        "dest_coords": cd["coords"][-1] if cd["coords"] else home,
                         "road_path": cd["coords"],
                         "walk_min": cd["walk_min"],
                         "walk_sec": cd["walk_sec"],
                         "crossings": cd["crossings"],
                         "spend": chain["spend"],
                         "is_chain": True,
+                        "depart_min": chain_depart,
+                        "stay_min": chain_stay,
+                        "return_min": chain_return,
+                        "origin": origin_name,
                     })
+
+                    next_available_min = chain_return
 
         agents.append(agent)
 
@@ -438,6 +862,7 @@ def agents_to_df(agents: list[Agent]) -> pd.DataFrame:
             rows.append({
                 "agent_id": agent.id,
                 "유형": agent.profile,
+                "출발점": log.get("origin", agent.origin),
                 "시간": log.get("time", ""),
                 "시간대": log.get("slot", ""),
                 "동기": log.get("motivation", ""),
@@ -449,12 +874,14 @@ def agents_to_df(agents: list[Agent]) -> pd.DataFrame:
                 "횡단보도": log["crossings"],
                 "소비(원)": log.get("spend", 0),
                 "연쇄": log.get("is_chain", False),
+                "출발(분)": log.get("depart_min", 0),
+                "체류(분)": log.get("stay_min", 0),
+                "귀가(분)": log.get("return_min", 0),
             })
     return pd.DataFrame(rows)
 
 
 def spending_summary(df: pd.DataFrame) -> dict:
-    """소비 요약 통계."""
     if df.empty:
         return {}
     return {
@@ -469,17 +896,52 @@ def spending_summary(df: pd.DataFrame) -> dict:
     }
 
 
+def estimate_revenue(
+    df: pd.DataFrame,
+    n_agents: int,
+    area: str = "daechi",
+) -> pd.DataFrame:
+    """시뮬레이션 방문 비율 → 실제 매출 비례 배분."""
+    if df.empty:
+        return pd.DataFrame()
+
+    sales_info = AREA_SALES.get(area, AREA_SALES["daechi"])
+
+    visit_counts = df.groupby("목적지").agg(
+        방문=("agent_id", "count"),
+        유형=("목적지유형", "first"),
+        lat=("lat", "first"),
+        lon=("lon", "first"),
+    ).reset_index()
+
+    total_visits = visit_counts["방문"].sum()
+    visit_counts["방문비율"] = visit_counts["방문"] / total_visits
+
+    apt_share = sales_info["apt_share"]
+    allocatable = sales_info["annual"] * apt_share
+
+    visit_counts["추정연매출"] = (visit_counts["방문비율"] * allocatable).astype(int)
+    visit_counts["추정월매출"] = (visit_counts["추정연매출"] / 12).astype(int)
+
+    return visit_counts.sort_values("추정연매출", ascending=False)
+
+
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding="utf-8")
 
-    print(f"건물 목적지: {len(DESTINATIONS)}개")
+    area = sys.argv[1] if len(sys.argv) > 1 else "daechi"
+    print(f"=== {area} 시뮬레이션 ===\n")
+
+    area_data = _get_area_data(area)
+    dests = area_data.destinations
+    print(f"건물 목적지: {len(dests)}개")
     from collections import Counter
-    tc = Counter(d["dest_type"] for d in DESTINATIONS)
+    tc = Counter(d["dest_type"] for d in dests)
     for t, c in tc.most_common():
         print(f"  {t}: {c}개")
 
-    agents = simulate(n_agents=100, seed=42)
+    agents = simulate(n_agents=100, seed=42, area=area)
     df = agents_to_df(agents)
 
     print(f"\n에이전트: {len(agents)}명, 외출: {df['agent_id'].nunique()}명, 이동: {len(df)}건")
@@ -489,13 +951,17 @@ if __name__ == "__main__":
     for p, c in profile_counts.most_common():
         print(f"  {p}: {c}명")
 
+    if "출발점" in df.columns:
+        print("\n출발점 분포:")
+        print(df.groupby("출발점")["agent_id"].nunique().to_string())
+
     print("\n시간대별:")
     print(df.groupby("시간대")["agent_id"].count().to_string())
 
     print("\n동기별:")
     print(df["동기"].value_counts().to_string())
 
-    print("\n연쇄 이동:", df["연쇄"].sum(), "건")
+    print(f"\n연쇄 이동: {df['연쇄'].sum()}건")
 
     summary = spending_summary(df)
     print(f"\n총 소비: {summary['총소비']:,}원")
@@ -503,6 +969,9 @@ if __name__ == "__main__":
     print("\n프로파일별 소비:")
     for p, s in summary["프로파일별소비"].items():
         print(f"  {p}: {s:,}원")
-    print("\n시간대별 소비:")
-    for t, s in summary["시간대별소비"].items():
-        print(f"  {t}: {s:,}원")
+
+    rev = estimate_revenue(df, 100, area=area)
+    if not rev.empty:
+        print(f"\n추정 매출 Top 10:")
+        for _, r in rev.head(10).iterrows():
+            print(f"  {r['목적지']} ({r['유형']}): 연 {r['추정연매출']:,}원")
