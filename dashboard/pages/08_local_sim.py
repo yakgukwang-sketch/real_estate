@@ -10,6 +10,8 @@ import streamlit.components.v1 as components
 import pandas as pd
 
 from src.simulation.local_agent import simulate, agents_to_df, spending_summary, APT_COORDS, NETWORK
+from src.simulation.calibration import load_calibration
+from src.simulation.validation import validate
 
 st.set_page_config(layout="wide")
 st.header("래미안 대치팰리스 — 주민 이동 시뮬레이션")
@@ -18,6 +20,10 @@ n_agents = st.sidebar.slider("시뮬레이션 인원", 10, 4960, 200, 10)
 seed = st.sidebar.number_input("랜덤 시드", value=42)
 show_max = st.sidebar.slider("지도 표시 에이전트 수", 10, 300, 120, 10)
 anim_speed = st.sidebar.slider("애니메이션 속도", 1, 10, 5)
+
+# 보정 데이터 로드
+use_calibration = st.sidebar.checkbox("실데이터 보정 사용", value=True)
+cal_data = load_calibration() if use_calibration else None
 
 agents = simulate(n_agents=n_agents, seed=int(seed))
 df = agents_to_df(agents)
@@ -284,7 +290,7 @@ with col_map:
     components.html(html, height=690)
 
 with col_detail:
-    tab_mot, tab_profile, tab_spend, tab_agent = st.tabs(["동기별", "프로파일", "소비", "에이전트"])
+    tab_mot, tab_profile, tab_spend, tab_agent, tab_cal = st.tabs(["동기별", "프로파일", "소비", "에이전트", "보정/검증"])
 
     with tab_mot:
         if not df.empty and "동기" in df.columns:
@@ -364,3 +370,75 @@ with col_detail:
                 )
         else:
             st.info("외출한 에이전트가 없습니다.")
+
+    with tab_cal:
+        if cal_data and cal_data.get("spending_df") is not None and not df.empty:
+            val_result = validate(
+                df,
+                cal_data["spending_df"],
+                cal_data.get("population_df"),
+                cal_data.get("hourly_pattern"),
+                n_agents=n_agents,
+            )
+
+            # 매치 스코어
+            st.metric("매치 스코어", f"{val_result['match_score']}%")
+
+            # 객단가 비교 테이블
+            st.markdown("**업종별 객단가 비교**")
+            up = val_result.get("unit_prices", {})
+            if up:
+                up_rows = [
+                    {"업종": k, "시뮬(원)": f"{v['sim']:,}", "실제(원)": f"{v['real']:,}", "차이(%)": v["diff_pct"]}
+                    for k, v in up.items()
+                ]
+                st.dataframe(pd.DataFrame(up_rows), use_container_width=True, hide_index=True)
+
+            # 방문 비중 비교 바 차트
+            st.markdown("**방문 비중 비교**")
+            vs = val_result.get("visit_share", {})
+            cos_sim = vs.get("cosine_similarity", 0)
+            st.caption(f"코사인 유사도: {cos_sim:.4f}")
+            sim_share = vs.get("sim_share", {})
+            real_share = vs.get("real_share", {})
+            if sim_share or real_share:
+                all_types = sorted(set(sim_share.keys()) | set(real_share.keys()))
+                share_df = pd.DataFrame({
+                    "업종": all_types,
+                    "시뮬레이션": [sim_share.get(t, 0) for t in all_types],
+                    "실제": [real_share.get(t, 0) for t in all_types],
+                })
+                st.bar_chart(share_df.set_index("업종"))
+
+            # 시간대 패턴 비교 라인 차트
+            st.markdown("**시간대 패턴 비교**")
+            hr = val_result.get("hourly", {})
+            corr = hr.get("correlation", 0)
+            st.caption(f"상관계수: {corr:.4f}")
+            sim_pat = hr.get("sim_pattern", {})
+            real_pat = hr.get("real_pattern", {})
+            if sim_pat or real_pat:
+                all_hours = sorted(set(sim_pat.keys()) | set(real_pat.keys()))
+                hr_df = pd.DataFrame({
+                    "시간": all_hours,
+                    "시뮬레이션": [sim_pat.get(h, 0) for h in all_hours],
+                    "실제 생활인구": [real_pat.get(h, 0) for h in all_hours],
+                })
+                st.line_chart(hr_df.set_index("시간"))
+
+            # 일일 매출 비교
+            dr = val_result.get("daily_revenue", {})
+            if dr:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("시뮬 일매출", f"{dr.get('sim_daily', 0):,}원")
+                c2.metric("실제 일매출", f"{dr.get('real_daily', 0):,}원")
+                c3.metric("비율", f"{dr.get('ratio', 0):.2f}x")
+        else:
+            st.info(
+                "보정/검증에는 실제 데이터(parquet)가 필요합니다.\n\n"
+                "수집 방법:\n"
+                "```\n"
+                "python collect_all.py --target spending --year 2024 --month 1\n"
+                "python collect_all.py --target population --year 2026 --month 1\n"
+                "```"
+            )

@@ -18,6 +18,20 @@ import pandas as pd
 from src.simulation.sidewalk import build_daechi_network, _distance_m
 
 
+# ── 보정 데이터 로드 ──
+
+def _load_calibration_data():
+    """보정 데이터 로드 (없으면 None)."""
+    try:
+        from src.simulation.calibration import load_calibration
+        return load_calibration()
+    except Exception:
+        return None
+
+
+_CALIBRATION = _load_calibration_data()
+
+
 # ── 에이전트 유형 프로파일 ──
 
 AGENT_PROFILES: dict[str, dict] = {
@@ -145,7 +159,7 @@ CHAIN_RULES: dict[str, list[dict]] = {
 
 # ── 업종별 객단가 (소비 시뮬레이션) ──
 
-SPEND_BY_DEST: dict[str, int] = {
+_SPEND_BY_DEST_DEFAULT: dict[str, int] = {
     "음식점": 9000,
     "상점": 15000,
     "대형상가": 30000,
@@ -153,6 +167,38 @@ SPEND_BY_DEST: dict[str, int] = {
     "생활서비스": 5000,
     "기타": 7000,
 }
+
+def _apply_visit_multipliers(profiles: dict, multipliers: dict[str, float], spend_map: dict[str, int]) -> dict:
+    """방문 보정계수를 프로파일의 action prob에 적용."""
+    import copy
+    profiles = copy.deepcopy(profiles)
+    for _name, profile in profiles.items():
+        for slot in profile["schedule"]:
+            for action in slot["actions"]:
+                dest_types = action.get("dest_types")
+                if not dest_types:
+                    continue
+                # dest_types에 해당하는 보정계수의 평균
+                mults = [multipliers.get(dt, 1.0) for dt in dest_types]
+                avg_mult = sum(mults) / len(mults)
+                action["prob"] = max(0.01, min(action["prob"] * avg_mult, 0.95))
+                # spend도 보정된 객단가로 스케일링
+                if action.get("spend", 0) > 0 and dest_types:
+                    primary_dt = dest_types[0]
+                    if primary_dt in spend_map:
+                        action["spend"] = spend_map[primary_dt]
+    return profiles
+
+
+# 보정 데이터가 있으면 객단가 교체
+if _CALIBRATION and _CALIBRATION.get("unit_prices"):
+    SPEND_BY_DEST = {**_SPEND_BY_DEST_DEFAULT, **_CALIBRATION["unit_prices"]}
+else:
+    SPEND_BY_DEST = _SPEND_BY_DEST_DEFAULT.copy()
+
+# 보정 데이터가 있으면 방문 보정계수 적용
+if _CALIBRATION and _CALIBRATION.get("visit_multipliers"):
+    AGENT_PROFILES = _apply_visit_multipliers(AGENT_PROFILES, _CALIBRATION["visit_multipliers"], SPEND_BY_DEST)
 
 
 @dataclass
