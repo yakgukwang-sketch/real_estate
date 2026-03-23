@@ -11,27 +11,82 @@ from __future__ import annotations
 import json
 import re
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import heapq
 
 
 WALK_SPEED = 1.2  # m/s (보행 속도, 약 4.3km/h)
-APT_LAT, APT_LON = 37.4945, 127.0625
-RADIUS = 0.008  # 약 800m
 
-DATA_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "raw" / "walk_network_gangnam.json"
-CROSSWALK_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "raw" / "crosswalk_gangnam.json"
+_DATA_ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "raw"
 
-# 래미안 대치팰리스 주변 지하철역 좌표 (subwayStationMaster API)
-SUBWAY_STATIONS = {
-    "대치역":    (37.494612, 127.063642),   # 3호선
-    "한티역":    (37.496237, 127.052873),   # 분당선
-    "학여울역":  (37.496663, 127.070594),   # 3호선
-    "도곡역":    (37.490922, 127.055452),   # 3호선
-    "매봉역":    (37.486947, 127.046769),   # 3호선
-    "선릉역":    (37.504286, 127.048203),   # 2호선
-}
+
+# ── 지역 설정 ──
+
+@dataclass
+class AreaConfig:
+    """시뮬레이션 지역 설정."""
+    name: str
+    center: tuple[float, float]  # (lat, lon)
+    radius: float  # 도 단위, 약 800m = 0.008
+    walk_network_file: str
+    crosswalk_file: str
+    buildings_file: str
+    subway_stations: dict[str, tuple[float, float]]  # name → (lat, lon)
+    origin_points: dict[str, tuple[float, float]] = field(default_factory=dict)
+    # apt 노드 추가 여부 (대치동처럼 단일 출발점 아파트가 있는 경우)
+    apt_node: tuple[float, float] | None = None
+    apt_label: str = ""
+
+
+DAECHI_CONFIG = AreaConfig(
+    name="daechi",
+    center=(37.4945, 127.0625),
+    radius=0.008,
+    walk_network_file="walk_network_gangnam.json",
+    crosswalk_file="crosswalk_gangnam.json",
+    buildings_file="buildings_classified.json",
+    subway_stations={
+        "대치역":    (37.494612, 127.063642),
+        "한티역":    (37.496237, 127.052873),
+        "학여울역":  (37.496663, 127.070594),
+        "도곡역":    (37.490922, 127.055452),
+        "매봉역":    (37.486947, 127.046769),
+        "선릉역":    (37.504286, 127.048203),
+    },
+    apt_node=(37.4945, 127.0625),
+    apt_label="래미안 대치팰리스 정문",
+)
+
+
+YEONGDEUNGPO_CONFIG = AreaConfig(
+    name="yeongdeungpo",
+    center=(37.5158, 126.9074),
+    radius=0.008,
+    walk_network_file="walk_network_yeongdeungpo.json",
+    crosswalk_file="crosswalk_yeongdeungpo.json",
+    buildings_file="buildings_classified_yeongdeungpo.json",
+    subway_stations={
+        "영등포역":     (37.5158, 126.9074),
+        "영등포시장역": (37.5225, 126.9048),
+        "신길역":       (37.5138, 126.9143),
+    },
+    origin_points={
+        "영등포역":     (37.5158, 126.9074),
+        "영등포시장역": (37.5225, 126.9048),
+        "신길역":       (37.5138, 126.9143),
+        "영등포동_주거": (37.5190, 126.9010),
+        "영등포_업무":  (37.5170, 126.9120),
+    },
+)
+
+
+# 하위호환용 전역 변수
+APT_LAT, APT_LON = DAECHI_CONFIG.center
+RADIUS = DAECHI_CONFIG.radius
+DATA_PATH = _DATA_ROOT / DAECHI_CONFIG.walk_network_file
+CROSSWALK_PATH = _DATA_ROOT / DAECHI_CONFIG.crosswalk_file
+SUBWAY_STATIONS = DAECHI_CONFIG.subway_stations
 
 
 @dataclass
@@ -172,11 +227,19 @@ def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def build_daechi_network() -> SidewalkNetwork:
-    """서울시 공공데이터에서 래미안 대치팰리스 주변 인도 네트워크 구축."""
+def build_network(config: AreaConfig) -> SidewalkNetwork:
+    """서울시 공공데이터에서 지정 지역의 인도 네트워크 구축."""
     net = SidewalkNetwork()
+    center_lat, center_lon = config.center
+    radius = config.radius
 
-    with open(DATA_PATH, encoding="utf-8") as f:
+    data_path = _DATA_ROOT / config.walk_network_file
+    crosswalk_path = _DATA_ROOT / config.crosswalk_file
+
+    if not data_path.exists():
+        raise FileNotFoundError(f"도보 네트워크 파일 없음: {data_path}")
+
+    with open(data_path, encoding="utf-8") as f:
         rows = json.load(f)
 
     # --- 1) 모든 노드 파싱 (좌표 인덱스 구축) ---
@@ -191,7 +254,7 @@ def build_daechi_network() -> SidewalkNetwork:
         is_cx = str(r.get("CRSWK", "0")) == "1"
         all_node_info[nid] = {"lat": pt[0], "lon": pt[1], "is_crosswalk": is_cx}
 
-    # --- 2) 모든 링크를 엣지로 등록 (강남구 전체) ---
+    # --- 2) 모든 링크를 엣지로 등록 ---
     all_links = [r for r in rows if r["NODE_TYPE"] == "LINK"]
     used_nodes: dict[int, dict] = {}
 
@@ -233,12 +296,11 @@ def build_daechi_network() -> SidewalkNetwork:
             is_crosswalk=info["is_crosswalk"],
         ))
 
-    # --- 4) 횡단보도 전용 데이터 합치기 (OA-21209) ---
-    if CROSSWALK_PATH.exists():
-        with open(CROSSWALK_PATH, encoding="utf-8") as f:
+    # --- 4) 횡단보도 전용 데이터 합치기 ---
+    if crosswalk_path.exists():
+        with open(crosswalk_path, encoding="utf-8") as f:
             cx_rows = json.load(f)
 
-        # 횡단보도 노드 추가
         for r in cx_rows:
             if r["NODE_TYPE"] != "NODE":
                 continue
@@ -250,7 +312,6 @@ def build_daechi_network() -> SidewalkNetwork:
                 all_nodes[nid] = {"lat": pt[0], "lon": pt[1], "is_crosswalk": True}
                 net.add_node(Node(str(nid), pt[0], pt[1], is_crosswalk=True))
 
-        # 횡단보도 링크 추가 (도로 횡단 연결)
         for r in cx_rows:
             if r["NODE_TYPE"] != "LINK":
                 continue
@@ -262,7 +323,6 @@ def build_daechi_network() -> SidewalkNetwork:
 
             length_m = float(r.get("LNKG_LEN", 0) or 0)
 
-            # 노드가 없으면 LINESTRING 끝점에서 생성
             if bgn not in all_nodes:
                 all_nodes[bgn] = {"lat": coords[0][0], "lon": coords[0][1], "is_crosswalk": True}
                 net.add_node(Node(str(bgn), coords[0][0], coords[0][1], is_crosswalk=True))
@@ -270,19 +330,16 @@ def build_daechi_network() -> SidewalkNetwork:
                 all_nodes[end] = {"lat": coords[-1][0], "lon": coords[-1][1], "is_crosswalk": True}
                 net.add_node(Node(str(end), coords[-1][0], coords[-1][1], is_crosswalk=True))
 
-            # 횡단보도 = 도보시간 + 신호대기
             walk_sec = length_m / WALK_SPEED if length_m > 0 else 10.0
-            walk_sec += 30.0  # 신호 대기
+            walk_sec += 30.0
             net.add_edge(str(bgn), str(end), walk_sec=round(walk_sec, 1))
 
     # --- 5) 단절된 컴포넌트 자동 연결 (30m 이내 노드끼리) ---
-    # 래미안 근처 노드만 대상 (성능)
     nearby_nids = [
         nid for nid, node in net.nodes.items()
-        if abs(node.lat - APT_LAT) <= RADIUS and abs(node.lon - APT_LON) <= RADIUS
+        if abs(node.lat - center_lat) <= radius and abs(node.lon - center_lon) <= radius
     ]
 
-    # BFS로 컴포넌트 찾기 (근처 노드만)
     nearby_set = set(nearby_nids)
     remaining = set(nearby_nids)
     components: list[set[str]] = []
@@ -299,7 +356,6 @@ def build_daechi_network() -> SidewalkNetwork:
                     q.append(e.to_id)
         components.append(comp)
 
-    # 컴포넌트 간 30m 이내 노드 쌍을 찾아 연결
     BRIDGE_DIST = 30.0
     for i in range(len(components)):
         for j in range(i + 1, len(components)):
@@ -319,7 +375,7 @@ def build_daechi_network() -> SidewalkNetwork:
 
     # --- 6) 지하철역 노드 추가 & 가장 가까운 도로 노드에 연결 ---
     special_ids = set()
-    for stn_name, (slat, slon) in SUBWAY_STATIONS.items():
+    for stn_name, (slat, slon) in config.subway_stations.items():
         stn_id = f"subway_{stn_name}"
         special_ids.add(stn_id)
         net.add_node(Node(stn_id, slat, slon, stn_name))
@@ -328,11 +384,34 @@ def build_daechi_network() -> SidewalkNetwork:
             d = _distance_m(slat, slon, net.nodes[nearest].lat, net.nodes[nearest].lon)
             net.add_edge(stn_id, nearest, walk_sec=round(d / WALK_SPEED, 1))
 
-    # --- 7) 아파트 정문 노드 추가 & 가장 가까운 도로 노드에 연결 ---
-    net.add_node(Node("apt", APT_LAT, APT_LON, "래미안 대치팰리스 정문"))
-    nearest = net.nearest_node(APT_LAT, APT_LON, exclude=special_ids | {"apt"})
-    if nearest:
-        d = _distance_m(APT_LAT, APT_LON, net.nodes[nearest].lat, net.nodes[nearest].lon)
-        net.add_edge("apt", nearest, walk_sec=round(d / WALK_SPEED, 1))
+    # --- 7) 아파트 정문 노드 (설정된 경우) ---
+    if config.apt_node:
+        apt_lat, apt_lon = config.apt_node
+        net.add_node(Node("apt", apt_lat, apt_lon, config.apt_label))
+        nearest = net.nearest_node(apt_lat, apt_lon, exclude=special_ids | {"apt"})
+        if nearest:
+            d = _distance_m(apt_lat, apt_lon, net.nodes[nearest].lat, net.nodes[nearest].lon)
+            net.add_edge("apt", nearest, walk_sec=round(d / WALK_SPEED, 1))
+
+    # --- 8) 출발점 노드 추가 (다중 출발점 모델) ---
+    for origin_name, (olat, olon) in config.origin_points.items():
+        oid = f"origin_{origin_name}"
+        if oid in net.nodes:
+            continue
+        # 지하철역과 같은 좌표면 별도 노드 불필요
+        stn_id = f"subway_{origin_name}"
+        if stn_id in net.nodes:
+            continue
+        special_ids.add(oid)
+        net.add_node(Node(oid, olat, olon, origin_name))
+        nearest = net.nearest_node(olat, olon, exclude=special_ids | {"apt"})
+        if nearest:
+            d = _distance_m(olat, olon, net.nodes[nearest].lat, net.nodes[nearest].lon)
+            net.add_edge(oid, nearest, walk_sec=round(d / WALK_SPEED, 1))
 
     return net
+
+
+def build_daechi_network() -> SidewalkNetwork:
+    """하위호환: 대치동 네트워크 구축."""
+    return build_network(DAECHI_CONFIG)

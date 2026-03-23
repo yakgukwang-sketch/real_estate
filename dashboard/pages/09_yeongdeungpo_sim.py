@@ -1,4 +1,4 @@
-"""래미안 대치팰리스 로컬 시뮬레이션 — 하루 시간 기반 에이전트 시각화."""
+"""영등포역 상권 보행자 시뮬레이션 — 다중 출발점 에이전트 시각화."""
 
 import sys
 from pathlib import Path
@@ -9,31 +9,46 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 
-from src.simulation.local_agent import simulate, agents_to_df, spending_summary, estimate_revenue, APT_COORDS, REAL_ANNUAL_SALES, AREA_SALES, _get_area_data
-from src.simulation.calibration import load_calibration
-from src.simulation.validation import validate
+from src.simulation.local_agent import (
+    simulate, agents_to_df, spending_summary, estimate_revenue,
+    AREA_SALES, _get_area_data,
+)
 
 st.set_page_config(layout="wide")
-st.header("래미안 대치팰리스 — 하루 시뮬레이션")
+st.header("영등포역 상권 — 보행자 시뮬레이션")
 
-n_agents = st.sidebar.slider("시뮬레이션 인원", 10, 4960, 300, 10)
+n_agents = st.sidebar.slider("시뮬레이션 인원", 10, 5000, 300, 10)
 seed = st.sidebar.number_input("랜덤 시드", value=42)
 show_max = st.sidebar.slider("지도 표시 에이전트 수", 10, 500, 200, 10)
 anim_speed = st.sidebar.slider("시뮬레이션 속도", 1, 20, 8)
 
-# 보정 데이터 로드
-use_calibration = st.sidebar.checkbox("실데이터 보정 사용", value=True)
-cal_data = load_calibration() if use_calibration else None
+# 시뮬레이션 실행
+area_data = _get_area_data("yeongdeungpo")
 
-agents = simulate(n_agents=n_agents, seed=int(seed), area="daechi")
+try:
+    agents = simulate(n_agents=n_agents, seed=int(seed), area="yeongdeungpo")
+except FileNotFoundError as e:
+    st.error(f"데이터 파일 없음: {e}\n\n`python scripts/collect_yeongdeungpo.py`를 먼저 실행하세요.")
+    st.stop()
+
 df = agents_to_df(agents)
-_daechi_data = _get_area_data("daechi")
-NETWORK = _daechi_data.network
-DESTINATIONS = _daechi_data.destinations
+NETWORK = area_data.network
+DESTINATIONS = area_data.destinations
+CENTER = area_data.config.center
 
 went_out = df["agent_id"].nunique() if not df.empty else 0
 summary = spending_summary(df) if not df.empty else {}
-revenue_df = estimate_revenue(df, n_agents, area="daechi")
+revenue_df = estimate_revenue(df, n_agents, area="yeongdeungpo")
+
+sales_info = AREA_SALES["yeongdeungpo"]
+
+# 사이드바: 출발점별 에이전트 수
+st.sidebar.divider()
+st.sidebar.markdown("**출발점별 에이전트**")
+if not df.empty and "출발점" in df.columns:
+    origin_counts = df.groupby("출발점")["agent_id"].nunique()
+    for origin, cnt in origin_counts.items():
+        st.sidebar.write(f"  {origin}: {cnt}명")
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("총 인원", f"{n_agents}명")
@@ -59,20 +74,32 @@ TYPE_COLORS = {
     "기타":         "#94a3b8",
 }
 
-# 인도 네트워크 엣지 — 래미안 근처만
-APT_LAT, APT_LON = APT_COORDS
+# 인도 네트워크 엣지
+CENTER_LAT, CENTER_LON = CENTER
 _all_edges = NETWORK.to_geojson_edges()
 sidewalk_edges = [
     e for e in _all_edges
-    if any(abs(c[0] - APT_LAT) < 0.008 and abs(c[1] - APT_LON) < 0.008
+    if any(abs(c[0] - CENTER_LAT) < 0.008 and abs(c[1] - CENTER_LON) < 0.008
            for c in e["coords"])
 ]
 sidewalk_edges_json = json.dumps(sidewalk_edges, ensure_ascii=False)
 
+# 출발점 마커 데이터
+origin_markers = []
+ORIGIN_ICONS = {
+    "영등포역": "🚇",
+    "영등포시장역": "🚇",
+    "신길역": "🚇",
+    "영등포동_주거": "🏘️",
+    "영등포_업무": "🏢",
+}
+for name, (lat, lon) in area_data.config.origin_points.items():
+    icon = ORIGIN_ICONS.get(name, "📍")
+    origin_markers.append({"name": name, "lat": lat, "lon": lon, "icon": icon})
+origin_markers_json = json.dumps(origin_markers, ensure_ascii=False)
 
-# 에이전트 시간 기반 경로 데이터
+
 def build_time_agents(agents, max_agents):
-    """각 에이전트의 시간 기반 이동 계획을 JSON으로 변환."""
     result = []
     shown = 0
     for agent in agents:
@@ -86,7 +113,7 @@ def build_time_agents(agents, max_agents):
         for log in agent.log:
             road = log.get("road_path", [])
             if not road:
-                road = [list(APT_COORDS), list(log["dest_coords"])]
+                road = [list(agent.home), list(log["dest_coords"])]
             else:
                 road = [list(p) for p in road]
 
@@ -107,6 +134,8 @@ def build_time_agents(agents, max_agents):
         result.append({
             "id": agent.id,
             "profile": agent.profile,
+            "origin": agent.origin,
+            "home": list(agent.home),
             "trips": trips,
         })
     return result
@@ -114,9 +143,8 @@ def build_time_agents(agents, max_agents):
 
 time_agents = build_time_agents(agents, show_max)
 
-# 목적지별 방문 집계 (핫스팟)
+
 def build_hotspots(df):
-    """목적지별 방문 횟수, 소비 합계, 좌표를 집계."""
     if df.empty:
         return []
     grouped = df.groupby(["목적지", "목적지유형"]).agg(
@@ -143,10 +171,8 @@ hotspots = build_hotspots(df)
 hotspots_json = json.dumps(hotspots, ensure_ascii=False)
 max_visits = max((h["visits"] for h in hotspots), default=1)
 
-# 전체 건물 데이터 (노출도 포함)
+
 def build_all_buildings():
-    """모든 도달 가능 건물을 JSON으로."""
-    # 방문 집계
     visit_counts = {}
     if not df.empty:
         vc = df.groupby("목적지").size()
@@ -175,7 +201,7 @@ all_buildings_json = json.dumps(all_buildings, ensure_ascii=False)
 col_map, col_detail = st.columns([3, 2])
 
 with col_map:
-    apt_json = json.dumps(list(APT_COORDS))
+    center_json = json.dumps(list(CENTER))
     agents_json = json.dumps(time_agents, ensure_ascii=False)
 
     html = (
@@ -221,31 +247,33 @@ with col_map:
         '<div id="legend">'
         '<b>목적지 유형</b><br>'
         '<span style="color:#ef4444">●</span> 음식점 '
-        '<span style="color:#3b82f6">●</span> 학원<br>'
-        '<span style="color:#f59e0b">●</span> 상점 '
-        '<span style="color:#22c55e">●</span> 병원/약국<br>'
-        '<span style="color:#8b5cf6">●</span> 생활서비스 '
+        '<span style="color:#f59e0b">●</span> 상점<br>'
+        '<span style="color:#22c55e">●</span> 병원/약국 '
+        '<span style="color:#8b5cf6">●</span> 생활서비스<br>'
+        '<span style="color:#ec4899">●</span> 대형상가 '
         '<span style="color:#94a3b8">●</span> 기타<br>'
-        '<span style="color:#1d4ed8">●</span> 학교 '
-        '<span style="color:#14b8a6">●</span> 종교시설<br>'
         '<span style="color:#06b6d4">●</span> 운동시설 '
         '<span style="color:#16a34a">●</span> 공원<br>'
+        '<hr style="margin:4px 0">'
+        '<b>출발점</b><br>'
+        '🚇 지하철역 🏘️ 주거지 🏢 업무지구<br>'
         '<hr style="margin:4px 0">'
         '<span style="color:#ccc">━━</span> 인도 '
         '<span style="color:#f97316">╍╍</span> 횡단보도'
         '</div>'
         '<script>'
-        'var APT=' + apt_json + ';'
+        'var CENTER=' + center_json + ';'
         'var EDGES=' + sidewalk_edges_json + ';'
         'var AGENTS=' + agents_json + ';'
         'var HOTSPOTS=' + hotspots_json + ';'
         'var MAX_VISITS=' + str(max_visits) + ';'
         'var BUILDINGS=' + all_buildings_json + ';'
+        'var ORIGINS=' + origin_markers_json + ';'
         'var SPEED=' + str(anim_speed) + ';'
         r"""
 
         var canvasRenderer = L.canvas({padding: 0.5});
-        var map = L.map('map', {preferCanvas: true}).setView(APT, 16);
+        var map = L.map('map', {preferCanvas: true}).setView(CENTER, 16);
 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png', {
             maxZoom: 19
@@ -262,15 +290,17 @@ with col_map:
             }).addTo(map);
         });
 
-        // 아파트
-        L.marker(APT, {
-            icon: L.divIcon({
-                html: '<div style="font-size:28px">🏢</div>',
-                iconSize:[30,30], iconAnchor:[15,15], className:''
-            })
-        }).addTo(map).bindPopup('<b>래미안 대치팰리스</b>');
+        // 다중 출발점 마커
+        ORIGINS.forEach(function(o) {
+            L.marker([o.lat, o.lon], {
+                icon: L.divIcon({
+                    html: '<div style="font-size:24px">' + o.icon + '</div>',
+                    iconSize:[28,28], iconAnchor:[14,14], className:''
+                })
+            }).addTo(map).bindPopup('<b>' + o.name + '</b>');
+        });
 
-        // === 핫스팟 레이어 (방문 밀집 구역) ===
+        // === 핫스팟 레이어 ===
         var hotspotLayer = L.layerGroup();
         var hotspotVisible = false;
 
@@ -291,7 +321,6 @@ with col_map:
                 + '방문: <b>' + h.visits + '회</b><br>'
                 + '소비: ' + h.spend.toLocaleString() + '원'
             );
-            // 방문 수 라벨 (5회 이상만)
             if (h.visits >= 5) {
                 var label = L.marker([h.lat, h.lon], {
                     icon: L.divIcon({
@@ -319,14 +348,12 @@ with col_map:
             }
         };
 
-        // === 전체 건물 레이어 (노출도 시각화) ===
+        // === 건물 레이어 ===
         var bldgLayer = L.layerGroup();
         var bldgVisible = false;
 
         BUILDINGS.forEach(function(b) {
-            // 크기: 노출도 높을수록 큰 원 (3~14px)
             var r = 3 + b.exposure * 11;
-            // 투명도: 방문된 곳은 진하게, 안 된 곳은 연하게
             var opacity = b.visits > 0 ? 0.8 : 0.3;
             var fillOpacity = b.visits > 0 ? 0.6 : 0.15;
             var weight = b.visits > 0 ? 2 : 1;
@@ -364,11 +391,9 @@ with col_map:
         };
 
         // === 시간 기반 에이전트 시스템 ===
-        var simTime = 360; // 06:00부터 시작 (분 단위)
+        var simTime = 360;
         var running = true;
         var lastFrame = performance.now();
-
-        // 에이전트별 마커 (재사용)
         var markers = {};
 
         function getMarker(agId, color) {
@@ -385,10 +410,8 @@ with col_map:
             return markers[agId];
         }
 
-        // 경로 위 보간: progress(0~1) → [lat, lon]
         function interpolatePath(road, progress) {
-            if (road.length < 2) return road[0] || APT;
-            // 총 거리 계산
+            if (road.length < 2) return road[0] || CENTER;
             var dists = [];
             var totalDist = 0;
             for (var i = 0; i < road.length - 1; i++) {
@@ -421,10 +444,9 @@ with col_map:
             return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
         }
 
-        // 프로파일별 색상
         var profileEmoji = {
-            '직장인': '💼', '맞벌이': '👫', '주부/주부': '🏠',
-            '학생': '📚', '은퇴자': '🧓'
+            '환승객': '🚉', '쇼핑객': '🛍️', '직장인(점심)': '💼',
+            '주민': '🏠', '시장방문객': '🧺'
         };
 
         function updateSim() {
@@ -433,18 +455,16 @@ with col_map:
             lastFrame = now;
 
             if (running) {
-                simTime += dt * SPEED * 2; // 1초 = SPEED*2분
-                if (simTime > 1440) simTime = 360; // 24:00 → 06:00 리셋
+                simTime += dt * SPEED * 2;
+                if (simTime > 1440) simTime = 360;
             }
 
             document.getElementById('clock').textContent = formatTime(simTime);
             document.getElementById('timeSlider').value = Math.floor(simTime);
 
-            // 에이전트 상태 계산
             var activeSet = {};
             var walkingCount = 0;
             var stayingCount = 0;
-            var homeCount = 0;
             var typeCounts = {};
 
             for (var i = 0; i < AGENTS.length; i++) {
@@ -461,22 +481,18 @@ with col_map:
                     var homeAt = leaveAt + trip.walk;
 
                     if (simTime >= dep && simTime < arriveAt) {
-                        // 갈 때: 집 → 목적지
                         var progress = (simTime - dep) / trip.walk;
                         pos = interpolatePath(trip.road, progress);
                         color = trip.color;
                         state = 'walking';
                         break;
                     } else if (simTime >= arriveAt && simTime < leaveAt) {
-                        // 체류 중
                         pos = trip.road[trip.road.length - 1];
                         color = trip.color;
                         state = 'staying';
                         break;
                     } else if (simTime >= leaveAt && simTime < homeAt) {
-                        // 올 때: 목적지 → 집
                         var progress = (simTime - leaveAt) / trip.walk;
-                        // 역순 경로
                         var rev = trip.road.slice().reverse();
                         pos = interpolatePath(rev, progress);
                         color = trip.color;
@@ -498,18 +514,15 @@ with col_map:
                     if (state === 'walking') walkingCount++;
                     else stayingCount++;
 
-                    // 유형별 집계
                     typeCounts[ag.profile] = (typeCounts[ag.profile] || 0) + 1;
                 } else {
                     if (m && m._map) map.removeLayer(m);
-                    homeCount++;
                 }
             }
 
-            // 상태 표시
             var statsHtml = '🕐 ' + formatTime(simTime) + '<br>'
                 + '🚶 이동: ' + walkingCount + '명  📍 체류: ' + stayingCount + '명<br>'
-                + '🏠 집: ' + (AGENTS.length - walkingCount - stayingCount) + '명';
+                + '출발대기: ' + (AGENTS.length - walkingCount - stayingCount) + '명';
 
             var profileLine = '';
             for (var p in typeCounts) {
@@ -524,7 +537,6 @@ with col_map:
 
         requestAnimationFrame(updateSim);
 
-        // 컨트롤
         document.getElementById('playBtn').onclick = function() {
             running = !running;
             lastFrame = performance.now();
@@ -533,7 +545,6 @@ with col_map:
         document.getElementById('resetBtn').onclick = function() {
             simTime = 360;
             lastFrame = performance.now();
-            // 모든 마커 제거
             for (var id in markers) {
                 if (markers[id]._map) map.removeLayer(markers[id]);
             }
@@ -549,8 +560,8 @@ with col_map:
     components.html(html, height=710)
 
 with col_detail:
-    tab_hot, tab_mot, tab_profile, tab_spend, tab_agent, tab_timeline, tab_cal = st.tabs(
-        ["인기장소", "동기별", "프로파일", "소비", "에이전트", "타임라인", "보정/검증"]
+    tab_hot, tab_mot, tab_profile, tab_spend, tab_agent, tab_timeline = st.tabs(
+        ["🔥인기장소", "동기별", "프로파일", "소비", "에이전트", "타임라인"]
     )
 
     with tab_hot:
@@ -585,12 +596,11 @@ with col_detail:
                 items = ", ".join(f"{name}({cnt}회)" for name, cnt in top3.items())
                 st.write(f"**{slot_name}**: {items}")
 
-            # 실제 매출 비례 배분 결과
+            # 매출 추정
             if not revenue_df.empty:
                 st.divider()
-                apt_share = 1600 / 20000
-                allocatable = REAL_ANNUAL_SALES * apt_share
-                st.markdown(f"**실제 매출 기반 추정** (상권 총매출 {REAL_ANNUAL_SALES/1e8:,.0f}억원 x 래미안 비중 8% = {allocatable/1e8:,.0f}억원)")
+                annual = sales_info["annual"]
+                st.markdown(f"**실제 매출 기반 추정** (상권 총매출 {annual/1e8:,.0f}억원)")
 
                 rev_display = revenue_df.head(20).copy()
                 rev_display["방문비율"] = (rev_display["방문비율"] * 100).round(1).astype(str) + "%"
@@ -641,6 +651,14 @@ with col_detail:
             ).sort_values("이동", ascending=False).reset_index()
             st.dataframe(ps, use_container_width=True, hide_index=True)
 
+            if "출발점" in df.columns:
+                st.markdown("**출발점별 이동**")
+                os = df.groupby("출발점").agg(
+                    인원=("agent_id", "nunique"),
+                    이동=("agent_id", "count"),
+                ).sort_values("이동", ascending=False).reset_index()
+                st.dataframe(os, use_container_width=True, hide_index=True)
+
             st.markdown("**시간대별 이동**")
             ts = df.groupby("시간대").agg(
                 건수=("agent_id", "count"),
@@ -674,9 +692,10 @@ with col_detail:
             pick = st.selectbox(
                 "에이전트 선택",
                 range(len(went_out_agents)),
-                format_func=lambda i: f"#{went_out_agents[i].id} [{went_out_agents[i].profile}] ({len(went_out_agents[i].log)}회)",
+                format_func=lambda i: f"#{went_out_agents[i].id} [{went_out_agents[i].profile}] ({went_out_agents[i].origin}) ({len(went_out_agents[i].log)}회)",
             )
             agent = went_out_agents[pick]
+            st.write(f"**출발점**: {agent.origin}")
             for j, log in enumerate(agent.log, 1):
                 mot = log.get("motivation", "")
                 depart = log.get("depart_min", 0)
@@ -698,7 +717,6 @@ with col_detail:
     with tab_timeline:
         if not df.empty:
             st.markdown("**시간대별 외출자 수**")
-            # 시간대별 히트맵 데이터
             hour_data = {}
             for _, row in df.iterrows():
                 dep_h = row["출발(분)"] // 60
@@ -716,75 +734,3 @@ with col_detail:
                 pt["시각"] = pt["출발(분)"].apply(lambda x: f"{x // 60:02d}:00")
                 ptg = pt.groupby(["시각", "유형"]).size().unstack(fill_value=0)
                 st.dataframe(ptg, use_container_width=True)
-
-    with tab_cal:
-        if cal_data and cal_data.get("spending_df") is not None and not df.empty:
-            val_result = validate(
-                df,
-                cal_data["spending_df"],
-                cal_data.get("population_df"),
-                cal_data.get("hourly_pattern"),
-                n_agents=n_agents,
-            )
-
-            # 매치 스코어
-            st.metric("매치 스코어", f"{val_result['match_score']}%")
-
-            # 객단가 비교 테이블
-            st.markdown("**업종별 객단가 비교**")
-            up = val_result.get("unit_prices", {})
-            if up:
-                up_rows = [
-                    {"업종": k, "시뮬(원)": f"{v['sim']:,}", "실제(원)": f"{v['real']:,}", "차이(%)": v["diff_pct"]}
-                    for k, v in up.items()
-                ]
-                st.dataframe(pd.DataFrame(up_rows), use_container_width=True, hide_index=True)
-
-            # 방문 비중 비교 바 차트
-            st.markdown("**방문 비중 비교**")
-            vs = val_result.get("visit_share", {})
-            cos_sim = vs.get("cosine_similarity", 0)
-            st.caption(f"코사인 유사도: {cos_sim:.4f}")
-            sim_share = vs.get("sim_share", {})
-            real_share = vs.get("real_share", {})
-            if sim_share or real_share:
-                all_types = sorted(set(sim_share.keys()) | set(real_share.keys()))
-                share_df = pd.DataFrame({
-                    "업종": all_types,
-                    "시뮬레이션": [sim_share.get(t, 0) for t in all_types],
-                    "실제": [real_share.get(t, 0) for t in all_types],
-                })
-                st.bar_chart(share_df.set_index("업종"))
-
-            # 시간대 패턴 비교 라인 차트
-            st.markdown("**시간대 패턴 비교**")
-            hr = val_result.get("hourly", {})
-            corr = hr.get("correlation", 0)
-            st.caption(f"상관계수: {corr:.4f}")
-            sim_pat = hr.get("sim_pattern", {})
-            real_pat = hr.get("real_pattern", {})
-            if sim_pat or real_pat:
-                all_hours = sorted(set(sim_pat.keys()) | set(real_pat.keys()))
-                hr_df = pd.DataFrame({
-                    "시간": all_hours,
-                    "시뮬레이션": [sim_pat.get(h, 0) for h in all_hours],
-                    "실제 생활인구": [real_pat.get(h, 0) for h in all_hours],
-                })
-                st.line_chart(hr_df.set_index("시간"))
-
-            # 일일 매출 비교
-            dr = val_result.get("daily_revenue", {})
-            if dr:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("시뮬 일매출", f"{dr.get('sim_daily', 0):,}원")
-                c2.metric("실제 일매출", f"{dr.get('real_daily', 0):,}원")
-                c3.metric("비율", f"{dr.get('ratio', 0):.2f}x")
-        else:
-            st.info(
-                "보정/검증에는 실제 데이터(parquet)가 필요합니다.\n\n"
-                "수집 방법:\n"
-                "```\n"
-                "python collect_all.py --target spending --year 2024 --month 1\n"
-                "python collect_all.py --target population --year 2026 --month 1\n"
-                "```"
-            )
