@@ -52,7 +52,8 @@ DAECHI_PROFILES: dict[str, dict] = {
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
                 {"name": "저녁 외식", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
-                {"name": "장보기", "prob": 0.15, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "장보기", "prob": 0.15, "dest_types": ["식료품점", "상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "약국 방문", "prob": 0.06, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "20:00", "slot": "밤", "actions": [
                 {"name": "산책/운동", "prob": 0.10, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
@@ -76,7 +77,8 @@ DAECHI_PROFILES: dict[str, dict] = {
             ]},
             {"time": "19:00", "slot": "저녁", "actions": [
                 {"name": "저녁 외식", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
-                {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "near", "spend": 0},
+                {"name": "장보기", "prob": 0.20, "dest_types": ["식료품점", "상점", "대형상가"], "dist_pref": "near", "spend": 0},
+                {"name": "약국 방문", "prob": 0.07, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
             ]},
         ],
         "chain_prob": 0.25,
@@ -88,7 +90,7 @@ DAECHI_PROFILES: dict[str, dict] = {
                 {"name": "등원/등교", "prob": 0.50, "dest_types": ["학원", "학교", "어린이집/복지"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "10:00", "slot": "오전", "actions": [
-                {"name": "장보기", "prob": 0.35, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "장보기", "prob": 0.35, "dest_types": ["식료품점", "상점", "대형상가"], "dist_pref": "mid", "spend": 0},
                 {"name": "동네 볼일", "prob": 0.20, "dest_types": ["생활서비스", "기타"], "dist_pref": "near", "spend": 0},
                 {"name": "병원/약국", "prob": 0.08, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
             ]},
@@ -138,7 +140,7 @@ DAECHI_PROFILES: dict[str, dict] = {
                 {"name": "점심 외식", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "15:00", "slot": "오후", "actions": [
-                {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "장보기", "prob": 0.20, "dest_types": ["식료품점", "상점", "대형상가"], "dist_pref": "mid", "spend": 0},
                 {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설", "공원"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
@@ -159,13 +161,16 @@ YEONGDEUNGPO_PROFILES: dict[str, dict] = {
         "origins": {"영등포역": 0.70, "영등포시장역": 0.20, "신길역": 0.10},
         "schedule": [
             {"time": "08:00", "slot": "이른아침", "actions": [
-                {"name": "커피/간식", "prob": 0.60, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+                {"name": "커피/간식", "prob": 0.45, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+                {"name": "약국 방문", "prob": 0.08, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
+                {"name": "쇼핑", "prob": 0.20, "dest_types": ["상점", "식료품점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
-                {"name": "점심 외식", "prob": 0.35, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+                {"name": "점심 외식", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
-                {"name": "간단 식사", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+                {"name": "간단 식사", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+                {"name": "쇼핑", "prob": 0.15, "dest_types": ["상점", "식료품점"], "dist_pref": "near", "spend": 0},
             ]},
         ],
         "chain_prob": 0.10,
@@ -175,17 +180,20 @@ YEONGDEUNGPO_PROFILES: dict[str, dict] = {
         "origins": {"영등포역": 0.45, "영등포시장역": 0.20, "영등포동_주거": 0.25, "신길역": 0.10},
         "schedule": [
             {"time": "10:00", "slot": "오전", "actions": [
-                {"name": "쇼핑", "prob": 0.50, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "쇼핑", "prob": 0.60, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "약국 방문", "prob": 0.10, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
-                {"name": "점심 외식", "prob": 0.55, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "점심 외식", "prob": 0.45, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "쇼핑", "prob": 0.25, "dest_types": ["상점", "식료품점"], "dist_pref": "mid", "spend": 0},
             ]},
             {"time": "14:00", "slot": "오후", "actions": [
-                {"name": "쇼핑", "prob": 0.40, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
-                {"name": "생활서비스", "prob": 0.15, "dest_types": ["생활서비스"], "dist_pref": "near", "spend": 0},
+                {"name": "쇼핑", "prob": 0.50, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "생활서비스", "prob": 0.10, "dest_types": ["생활서비스"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
-                {"name": "저녁 외식", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "저녁 외식", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "쇼핑", "prob": 0.20, "dest_types": ["상점", "식료품점"], "dist_pref": "near", "spend": 0},
             ]},
         ],
         "chain_prob": 0.30,
@@ -198,11 +206,14 @@ YEONGDEUNGPO_PROFILES: dict[str, dict] = {
                 {"name": "출근 커피", "prob": 0.35, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
-                {"name": "점심 외식", "prob": 0.80, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "점심 외식", "prob": 0.70, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "약국 방문", "prob": 0.06, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
+                {"name": "쇼핑", "prob": 0.15, "dest_types": ["상점", "식료품점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
-                {"name": "퇴근 후 식사", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
-                {"name": "퇴근 후 쇼핑", "prob": 0.15, "dest_types": ["상점", "대형상가"], "dist_pref": "near", "spend": 0},
+                {"name": "퇴근 후 식사", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "퇴근 후 쇼핑", "prob": 0.25, "dest_types": ["상점", "식료품점", "대형상가"], "dist_pref": "near", "spend": 0},
+                {"name": "병원/약국", "prob": 0.08, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "19:00", "slot": "저녁", "actions": [
                 {"name": "약속/회식", "prob": 0.12, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
@@ -215,8 +226,8 @@ YEONGDEUNGPO_PROFILES: dict[str, dict] = {
         "origins": {"영등포동_주거": 0.70, "영등포시장역": 0.15, "신길역": 0.15},
         "schedule": [
             {"time": "09:00", "slot": "오전", "actions": [
-                {"name": "장보기", "prob": 0.35, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
-                {"name": "병원/약국", "prob": 0.12, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
+                {"name": "장보기", "prob": 0.35, "dest_types": ["식료품점", "상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "병원/약국", "prob": 0.18, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
                 {"name": "동네 볼일", "prob": 0.15, "dest_types": ["생활서비스", "기타"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
@@ -224,7 +235,8 @@ YEONGDEUNGPO_PROFILES: dict[str, dict] = {
             ]},
             {"time": "15:00", "slot": "오후", "actions": [
                 {"name": "산책/운동", "prob": 0.15, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
-                {"name": "장보기", "prob": 0.20, "dest_types": ["상점", "대형상가"], "dist_pref": "near", "spend": 0},
+                {"name": "장보기", "prob": 0.20, "dest_types": ["식료품점", "상점", "대형상가"], "dist_pref": "near", "spend": 0},
+                {"name": "약국 방문", "prob": 0.08, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "18:00", "slot": "저녁", "actions": [
                 {"name": "저녁 외식", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
@@ -237,13 +249,14 @@ YEONGDEUNGPO_PROFILES: dict[str, dict] = {
         "origins": {"영등포역": 0.35, "영등포시장역": 0.30, "영등포동_주거": 0.25, "신길역": 0.10},
         "schedule": [
             {"time": "09:00", "slot": "오전", "actions": [
-                {"name": "시장 장보기", "prob": 0.60, "dest_types": ["상점"], "dist_pref": "mid", "spend": 0},
+                {"name": "시장 장보기", "prob": 0.60, "dest_types": ["식료품점", "상점"], "dist_pref": "mid", "spend": 0},
+                {"name": "약국 방문", "prob": 0.10, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "12:00", "slot": "점심", "actions": [
                 {"name": "시장 먹거리", "prob": 0.45, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
             ]},
             {"time": "15:00", "slot": "오후", "actions": [
-                {"name": "추가 장보기", "prob": 0.30, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "추가 장보기", "prob": 0.30, "dest_types": ["식료품점", "상점", "대형상가"], "dist_pref": "mid", "spend": 0},
             ]},
         ],
         "chain_prob": 0.25,
@@ -255,13 +268,16 @@ YEONGDEUNGPO_PROFILES: dict[str, dict] = {
 CHAIN_RULES: dict[str, list[dict]] = {
     "학원":      [{"dest_types": ["음식점"], "prob": 0.3, "spend": 0}],
     "학교":      [{"dest_types": ["음식점"], "prob": 0.2, "spend": 0}],
-    "음식점":    [{"dest_types": ["상점"], "prob": 0.15, "spend": 0},
+    "음식점":    [{"dest_types": ["상점", "식료품점"], "prob": 0.15, "spend": 0},
                   {"dest_types": ["음식점"], "prob": 0.10, "spend": 0}],
     "상점":      [{"dest_types": ["음식점"], "prob": 0.20, "spend": 0}],
-    "병원/약국": [{"dest_types": ["상점"], "prob": 0.15, "spend": 0}],
+    "식료품점":  [{"dest_types": ["음식점"], "prob": 0.15, "spend": 0},
+                  {"dest_types": ["병원/약국"], "prob": 0.10, "spend": 0}],
+    "병원/약국": [{"dest_types": ["식료품점"], "prob": 0.20, "spend": 0}],
     "운동시설":  [{"dest_types": ["음식점"], "prob": 0.25, "spend": 0}],
     "공원":      [{"dest_types": ["음식점"], "prob": 0.20, "spend": 0}],
     "대형상가":  [{"dest_types": ["음식점"], "prob": 0.25, "spend": 0}],
+    "숙박/유흥": [{"dest_types": ["음식점"], "prob": 0.20, "spend": 0}],
 }
 
 
@@ -281,53 +297,29 @@ AREA_SALES: dict[str, dict] = {
 # 하위호환
 REAL_ANNUAL_SALES: int = AREA_SALES["daechi"]["annual"]
 
-# 업종별 객단가
-SPEND_BY_DEST: dict[str, int] = {
+# 업종별 객단가 (기본값)
+_SPEND_BY_DEST_DEFAULT: dict[str, int] = {
     "음식점": 15300,
     "학원": 16000,
     "학교": 0,
-    "상점": 9700,
+    "상점": 15000,       # 의류/잡화 (실제 매출 반영 상향)
+    "식료품점": 10000,   # 슈퍼/편의점/반찬 등
     "대형상가": 30000,
-    "병원/약국": 39700,
-    "생활서비스": 60900,
+    "병원/약국": 25000,  # 약국+의원 평균 (기존 39700은 과대)
+    "생활서비스": 18000,  # 미용실/세탁소 평균 (기존 60900 과대)
     "운동시설": 13000,
-    "기타": 32400,
+    "숙박/유흥": 35000,  # 여관/노래방/PC방
+    "기타": 15000,
     "종교시설": 0,
     "공원": 0,
     "어린이집/복지": 0,
 }
 
-def _apply_visit_multipliers(profiles: dict, multipliers: dict[str, float], spend_map: dict[str, int]) -> dict:
-    """방문 보정계수를 프로파일의 action prob에 적용."""
-    import copy
-    profiles = copy.deepcopy(profiles)
-    for _name, profile in profiles.items():
-        for slot in profile["schedule"]:
-            for action in slot["actions"]:
-                dest_types = action.get("dest_types")
-                if not dest_types:
-                    continue
-                # dest_types에 해당하는 보정계수의 평균
-                mults = [multipliers.get(dt, 1.0) for dt in dest_types]
-                avg_mult = sum(mults) / len(mults)
-                action["prob"] = max(0.01, min(action["prob"] * avg_mult, 0.95))
-                # spend도 보정된 객단가로 스케일링
-                if action.get("spend", 0) > 0 and dest_types:
-                    primary_dt = dest_types[0]
-                    if primary_dt in spend_map:
-                        action["spend"] = spend_map[primary_dt]
-    return profiles
-
-
 # 보정 데이터가 있으면 객단가 교체
 if _CALIBRATION and _CALIBRATION.get("unit_prices"):
-    SPEND_BY_DEST = {**_SPEND_BY_DEST_DEFAULT, **_CALIBRATION["unit_prices"]}
+    SPEND_BY_DEST: dict[str, int] = {**_SPEND_BY_DEST_DEFAULT, **_CALIBRATION["unit_prices"]}
 else:
-    SPEND_BY_DEST = _SPEND_BY_DEST_DEFAULT.copy()
-
-# 보정 데이터가 있으면 방문 보정계수 적용
-if _CALIBRATION and _CALIBRATION.get("visit_multipliers"):
-    AGENT_PROFILES = _apply_visit_multipliers(AGENT_PROFILES, _CALIBRATION["visit_multipliers"], SPEND_BY_DEST)
+    SPEND_BY_DEST: dict[str, int] = _SPEND_BY_DEST_DEFAULT.copy()
 
 
 @dataclass
@@ -520,6 +512,29 @@ class _AreaData:
         }
 
 
+# 소분류(indsSclsNm) → dest_type 매핑 (약국/의료 관련)
+_SUB_CAT_PHARMACY = {"약국", "의약품소매점", "건강보조식품 소매업", "의료기기 소매업"}
+_SUB_CAT_FOOD = {
+    "슈퍼마켓", "편의점", "반찬/식료품 소매업", "채소/과일 소매업",
+    "정육점", "건어물/젓갈 소매업", "수산물 소매업", "주류 소매업",
+    "아이스크림 할인점",
+}
+_SUB_CAT_LODGING = {"여관/모텔", "펜션", "기숙사/고시원", "그 외 기타 숙박업"}
+
+
+def _classify_retail(sub_cats: dict) -> str:
+    """소매 건물의 소분류 기반 세분화."""
+    # 약국이 포함된 건물 → 병원/약국
+    if sub_cats.keys() & _SUB_CAT_PHARMACY:
+        return "병원/약국"
+    # 식료품 위주 → 식료품점
+    food_count = sum(sub_cats.get(k, 0) for k in _SUB_CAT_FOOD if k in sub_cats)
+    total = sum(sub_cats.values())
+    if total > 0 and food_count / total > 0.5:
+        return "식료품점"
+    return "상점"
+
+
 def _load_buildings(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -533,16 +548,25 @@ def _load_buildings(path: Path) -> list[dict]:
             continue
 
         cats = b.get("categories", {})
+        sub_cats = b.get("sub_categories", {})
         btype = b.get("bld_type", "")
 
-        if "음식" in cats:
+        # 숙박 체크 (sub_categories 우선)
+        if sub_cats.keys() & _SUB_CAT_LODGING:
+            dest_type = "숙박/유흥"
+        elif "숙박" in cats:
+            dest_type = "숙박/유흥"
+        elif "음식" in cats:
             dest_type = "음식점"
         elif "교육연구시설" in cats:
             dest_type = "학교"
         elif "교육" in cats and cats.get("교육", 0) >= 3:
             dest_type = "학원"
         elif "소매" in cats:
-            dest_type = "상점"
+            if sub_cats:
+                dest_type = _classify_retail(sub_cats)
+            else:
+                dest_type = "상점"
         elif "보건의료" in cats or "의료시설" in cats:
             dest_type = "병원/약국"
         elif "수리·개인" in cats or "생활서비스" in cats:
@@ -661,6 +685,7 @@ STAY_MINUTES: dict[str, tuple[int, int]] = {
     "시장 장보기":   (20, 60),
     "시장 먹거리":   (15, 40),
     "추가 장보기":   (15, 40),
+    "약국 방문":     (5, 15),
 }
 
 
