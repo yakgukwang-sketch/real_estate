@@ -41,7 +41,8 @@ _CALIBRATION = _load_calibration_data()
 
 DAECHI_PROFILES: dict[str, dict] = {
     "직장인": {
-        "prob": 0.35,
+        "prob": 0.14,
+        "origins": {"대치_주거": 1.0},
         "schedule": [
             {"time": "07:00", "slot": "이른아침", "actions": [
                 {"name": "출근", "prob": 0.90, "dest_types": None, "dist_pref": "far", "spend": 0},
@@ -63,7 +64,8 @@ DAECHI_PROFILES: dict[str, dict] = {
         "chain_prob": 0.15,
     },
     "맞벌이": {
-        "prob": 0.20,
+        "prob": 0.08,
+        "origins": {"대치_주거": 1.0},
         "schedule": [
             {"time": "07:30", "slot": "이른아침", "actions": [
                 {"name": "등원/등교", "prob": 0.60, "dest_types": ["학원", "학교", "어린이집/복지"], "dist_pref": "mid", "spend": 0},
@@ -84,7 +86,8 @@ DAECHI_PROFILES: dict[str, dict] = {
         "chain_prob": 0.25,
     },
     "주부/주부": {
-        "prob": 0.15,
+        "prob": 0.06,
+        "origins": {"대치_주거": 1.0},
         "schedule": [
             {"time": "08:00", "slot": "이른아침", "actions": [
                 {"name": "등원/등교", "prob": 0.50, "dest_types": ["학원", "학교", "어린이집/복지"], "dist_pref": "mid", "spend": 0},
@@ -108,7 +111,8 @@ DAECHI_PROFILES: dict[str, dict] = {
         "chain_prob": 0.30,
     },
     "학생": {
-        "prob": 0.15,
+        "prob": 0.06,
+        "origins": {"대치_주거": 1.0},
         "schedule": [
             {"time": "07:30", "slot": "이른아침", "actions": [
                 {"name": "등원/등교", "prob": 0.85, "dest_types": ["학교"], "dist_pref": "mid", "spend": 0},
@@ -126,7 +130,8 @@ DAECHI_PROFILES: dict[str, dict] = {
         "chain_prob": 0.20,
     },
     "은퇴자": {
-        "prob": 0.15,
+        "prob": 0.06,
+        "origins": {"대치_주거": 1.0},
         "schedule": [
             {"time": "06:00", "slot": "이른아침", "actions": [
                 {"name": "산책/운동", "prob": 0.40, "dest_types": ["운동시설", "공원"], "dist_pref": "mid", "spend": 0},
@@ -148,6 +153,80 @@ DAECHI_PROFILES: dict[str, dict] = {
             ]},
         ],
         "chain_prob": 0.10,
+    },
+    # ── 외부 유입 프로파일 (학원가 + 직장인 + 방문객) ──
+    "학원학생(외부)": {
+        "prob": 0.30,
+        "origins": {"대치역": 0.35, "한티역": 0.25, "학여울역": 0.20, "선릉역": 0.10, "도곡역": 0.10},
+        "schedule": [
+            {"time": "09:00", "slot": "오전", "actions": [
+                {"name": "등원/등교", "prob": 0.40, "dest_types": ["학원"], "dist_pref": "mid", "spend": 0},
+                {"name": "출근 전 커피", "prob": 0.15, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "12:00", "slot": "점심", "actions": [
+                {"name": "점심 외식", "prob": 0.65, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+                {"name": "장보기", "prob": 0.10, "dest_types": ["식료품점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "15:00", "slot": "오후", "actions": [
+                {"name": "등원/등교", "prob": 0.60, "dest_types": ["학원"], "dist_pref": "mid", "spend": 0},
+                {"name": "장보기", "prob": 0.08, "dest_types": ["식료품점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "18:00", "slot": "저녁", "actions": [
+                {"name": "저녁 외식", "prob": 0.50, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "21:00", "slot": "밤", "actions": [
+                {"name": "간단 식사", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+        ],
+        "chain_prob": 0.20,
+    },
+    "외부직장인": {
+        "prob": 0.18,
+        "origins": {"대치역": 0.25, "한티역": 0.20, "선릉역": 0.30, "도곡역": 0.15, "학여울역": 0.10},
+        "schedule": [
+            {"time": "08:00", "slot": "이른아침", "actions": [
+                {"name": "출근 전 커피", "prob": 0.35, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "12:00", "slot": "점심", "actions": [
+                {"name": "점심 외식", "prob": 0.75, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "약국 방문", "prob": 0.05, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "14:00", "slot": "오후", "actions": [
+                {"name": "출근 전 커피", "prob": 0.20, "dest_types": ["음식점"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "18:00", "slot": "저녁", "actions": [
+                {"name": "저녁 외식", "prob": 0.30, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "퇴근 후 쇼핑", "prob": 0.15, "dest_types": ["상점", "식료품점"], "dist_pref": "near", "spend": 0},
+                {"name": "약국 방문", "prob": 0.06, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "19:00", "slot": "저녁", "actions": [
+                {"name": "약속/회식", "prob": 0.15, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+            ]},
+        ],
+        "chain_prob": 0.15,
+    },
+    "방문객(학부모등)": {
+        "prob": 0.12,
+        "origins": {"대치역": 0.30, "한티역": 0.25, "학여울역": 0.15, "도곡역": 0.15, "선릉역": 0.15},
+        "schedule": [
+            {"time": "10:00", "slot": "오전", "actions": [
+                {"name": "쇼핑", "prob": 0.35, "dest_types": ["상점", "대형상가"], "dist_pref": "mid", "spend": 0},
+                {"name": "병원/약국", "prob": 0.12, "dest_types": ["병원/약국"], "dist_pref": "near", "spend": 0},
+                {"name": "동네 볼일", "prob": 0.10, "dest_types": ["생활서비스", "기타"], "dist_pref": "near", "spend": 0},
+            ]},
+            {"time": "12:00", "slot": "점심", "actions": [
+                {"name": "점심 외식", "prob": 0.50, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+            ]},
+            {"time": "15:00", "slot": "오후", "actions": [
+                {"name": "학원 픽업", "prob": 0.40, "dest_types": ["학원"], "dist_pref": "mid", "spend": 0},
+                {"name": "쇼핑", "prob": 0.20, "dest_types": ["상점", "식료품점"], "dist_pref": "mid", "spend": 0},
+            ]},
+            {"time": "18:00", "slot": "저녁", "actions": [
+                {"name": "저녁 외식", "prob": 0.25, "dest_types": ["음식점"], "dist_pref": "mid", "spend": 0},
+                {"name": "장보기", "prob": 0.15, "dest_types": ["식료품점", "상점"], "dist_pref": "near", "spend": 0},
+            ]},
+        ],
+        "chain_prob": 0.25,
     },
 }
 
@@ -286,7 +365,7 @@ CHAIN_RULES: dict[str, list[dict]] = {
 AREA_SALES: dict[str, dict] = {
     "daechi": {
         "annual": 1_202_800_000_000,  # 1조 2,028억원 (대치/은마/도곡 상권 2024년)
-        "apt_share": 1600 / 20000,     # 래미안 비중
+        "apt_share": 1.0,              # 다중 출발점 모델: 상권 전체 커버
     },
     "yeongdeungpo": {
         "annual": 628_800_000_000,     # 6,288억원 (영등포역 상권 2024년)
@@ -300,7 +379,7 @@ REAL_ANNUAL_SALES: int = AREA_SALES["daechi"]["annual"]
 # 업종별 객단가 (기본값)
 _SPEND_BY_DEST_DEFAULT: dict[str, int] = {
     "음식점": 15300,
-    "학원": 16000,
+    "학원": 0,
     "학교": 0,
     "상점": 15000,       # 의류/잡화 (실제 매출 반영 상향)
     "식료품점": 10000,   # 슈퍼/편의점/반찬 등
@@ -798,7 +877,7 @@ def simulate(
     destinations = area_data.destinations
 
     # 다중 출발점인 경우 각 출발점별 목적지 캐시
-    is_multi_origin = bool(config.origin_points) and not config.apt_node
+    is_multi_origin = bool(config.origin_points)
     home_coords = config.center
 
     agents = []
@@ -871,6 +950,11 @@ def simulate(
                 spend = action.get("spend", 0)
                 if spend == 0:
                     spend = SPEND_BY_DEST.get(dest["dest_type"], 0)
+                    # 시간대별 객단가 보정 (저녁/회식은 더 비쌈)
+                    if spend > 0 and action["name"] in ("저녁 외식", "퇴근 후 식사"):
+                        spend = int(spend * 1.8)
+                    elif spend > 0 and action["name"] in ("약속/회식", "친구 약속"):
+                        spend = int(spend * 2.5)
 
                 agent.log.append({
                     "motivation": action["name"],
