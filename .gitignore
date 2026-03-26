@@ -36,5 +36,8 @@ data/cache/
 .DS_Store
 Thumbs.db
 
+# Cache
+cache/
+
 # Streamlit
 .streamlit/secrets.toml
